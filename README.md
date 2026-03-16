@@ -26,6 +26,85 @@ One difference between the previous ports and `ladderjs` is that I wanted ladder
 
 You can play ladderjs in your browser at [ladderjs.7tonshark.com](https://ladderjs.7tonshark.com).
 
+Alternatively, run the headless server locally and play via WebSocket or REST API:
+
+```bash
+npm install
+npm run build:server
+npm start
+# Server runs at http://localhost:3000
+```
+
+## REST & WebSocket Interface
+
+The game can run headlessly in Node.js and be controlled remotely via HTTP and WebSocket:
+
+### Running the Server
+
+```bash
+npm run build:server    # Build the server bundle
+npm start               # Start on port 3000
+```
+
+### Browser Viewer
+
+Open `http://localhost:3000` in your browser to watch and play the game with keyboard controls.
+
+### REST API
+
+**Get game state:**
+```bash
+curl http://localhost:3000/api/state
+```
+
+Response:
+```json
+{
+  "frame": 1234,
+  "screen": ["...", "..."],  // 24 strings of 80 characters each
+  "session": {
+    "score": 1000,
+    "lives": 3,
+    "level": 0,
+    "paused": false
+  }
+}
+```
+
+**Send input:**
+```bash
+curl -X POST http://localhost:3000/api/input \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"RIGHT"}'
+```
+
+Valid actions: `UP`, `DOWN`, `LEFT`, `RIGHT`, `JUMP`, `STOP`, `PAUSE`, `RESUME`.
+
+### WebSocket
+
+Connect to `ws://localhost:3000` to receive frame updates at ~60/s and send input:
+
+**Receive** (from server, every frame):
+```json
+{ "type": "frame", "frame": 1234, "screen": [...], "session": {...} }
+```
+
+**Send** (to server):
+```json
+{ "type": "input", "action": "JUMP" }
+```
+
+### Original Game
+
+The standalone browser game is available at `http://localhost:3000/game` or by opening `dist/index.html` directly.
+
+## Development
+
+Build commands:
+- `npx gulp build` — Browser game bundle
+- `npm run build:server` — Headless server bundle
+- `npx gulp watch` — Watch mode for browser bundle
+
 ## Core Mechanics
 
 Ladder is an ASCII-based platformer where you navigate Lad through various levels.

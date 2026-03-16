@@ -9,6 +9,8 @@ const gulp              = require('gulp');
 const log               = require('fancy-log');
 const rollup            = require('rollup');
 const rollupJson        = require('@rollup/plugin-json');
+const rollupAlias       = require('@rollup/plugin-alias');
+const path              = require('path');
 
 const AsepriteCli       = require('./tools/aseprite-cli');
 const ImageDataParser   = require('./tools/image-data-parser');
@@ -85,6 +87,44 @@ function minifyBuild() {
 }
 
 const buildJs = gulp.series(generateGameVersion, compileBuild, minifyBuild);
+
+// -----------------------------------------------------------------------------
+// Server Build
+// -----------------------------------------------------------------------------
+async function compileServerBuild() {
+    try {
+        const bundle = await rollup.rollup({
+            input: 'src/js/server.js',
+            external: ['express', 'ws', 'path', 'http', 'url'],
+            plugins: [
+                rollupAlias({
+                    entries: [
+                        { find: './Viewport', replacement: path.resolve(__dirname, 'src/js/shims/ServerViewport.js') },
+                        { find: './Text', replacement: path.resolve(__dirname, 'src/js/shims/ServerText.js') },
+                        { find: './Audio', replacement: path.resolve(__dirname, 'src/js/shims/ServerAudio.js') },
+                        { find: './Sprite', replacement: path.resolve(__dirname, 'src/js/shims/ServerSprite.js') }
+                    ]
+                }),
+                rollupJson()
+            ],
+            onwarn: (warning, rollupWarn) => {
+                if (warning.code !== 'CIRCULAR_DEPENDENCY') {
+                    rollupWarn(warning);
+                }
+            }
+        });
+
+        await bundle.write({
+            file: 'dist/server.js',
+            format: 'cjs'
+        });
+    } catch (error) {
+        require('rollup/dist/shared/loadConfigFile').handleError(error, true);
+        throw error;
+    }
+}
+
+const buildServer = gulp.series(generateGameVersion, compileServerBuild);
 
 // -----------------------------------------------------------------------------
 // CSS Build
@@ -178,12 +218,14 @@ module.exports = {
     // Potentially useful subtasks
     compileBuild,
     minifyBuild,
+    compileServerBuild,
 
     // Core build steps
     buildJs,
     buildCss,
     buildAssets,
     buildHtml,
+    buildServer,
 
     // Primary entry points
     build,
