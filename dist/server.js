@@ -1941,12 +1941,23 @@ class ServerGame {
             throw new Error(`Unknown action: ${actionName}`);
         }
 
+        console.log(`Injecting action: ${actionName}`);
         const actionCode = Input.Action[actionName];
         Input.buffer.push({
             at: new Date().getTime(),
             key: actionName,
             code: actionName,
             action: actionCode
+        });
+    }
+
+    injectKey(key, code) {
+        console.log(`Injecting key: ${key} (code: ${code || key})`);
+        Input.buffer.push({
+            at: new Date().getTime(),
+            key: key,
+            code: code || key,
+            action: Input.KeyMapping[code || key] || Input.Action.STOP
         });
     }
 
@@ -2003,6 +2014,8 @@ async function startServer(port = 3000) {
                 const message = JSON.parse(data);
                 if (message.type === 'input' && message.action) {
                     game.injectAction(message.action);
+                } else if (message.type === 'key' && message.key) {
+                    game.injectKey(message.key, message.code);
                 }
             } catch (e) {
                 console.error('WebSocket message error:', e);

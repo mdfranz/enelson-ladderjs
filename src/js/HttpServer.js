@@ -46,6 +46,8 @@ export async function startServer(port = 3000) {
                 const message = JSON.parse(data);
                 if (message.type === 'input' && message.action) {
                     game.injectAction(message.action);
+                } else if (message.type === 'key' && message.key) {
+                    game.injectKey(message.key, message.code);
                 }
             } catch (e) {
                 console.error('WebSocket message error:', e);

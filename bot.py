@@ -1,0 +1,546 @@
+# /// script
+# dependencies = [
+#   "websockets",
+# ]
+# ///
+
+import asyncio
+import json
+import websockets
+import sys
+
+
+class BotConfig:
+    """Named constants for bot behavior."""
+    WS_URL = "ws://localhost:3000"
+
+    PLAYER_CHARS = {'p', 'q', 'g', 'b'}
+    ROCK_CHARS = {'o', 'v'}
+    GHOST_CHARS = {'u'}
+
+    # Tile characters
+    LADDER = 'H'
+    SOLID_CHARS = {'=', '|', '-'}
+    EMPTY_CHARS = {' ', 'R', 'G'}
+
+    # Hazard thresholds (in tiles)
+    H_THREAT_DIST = 9          # horizontal threat detection distance
+    H_DODGE_DIST = 6           # minimum distance before dodge triggers
+    OVERHEAD_COLS = 2          # how many columns away is "overhead"?
+    GHOST_THREAT_DIST = 8      # ghost threat detection distance
+    DODGE_COOLDOWN = 15        # frames before dodge is available again
+
+
+class GameState:
+    """Single-frame snapshot of game state. Parse once per frame."""
+
+    def __init__(self, frame):
+        self.frame = frame
+        self.player_x = -1
+        self.player_y = -1
+        self.player_char = ''
+        self.rocks = []
+        self.ghosts = []
+        self.ladders = []
+        self.keys = []
+        self.dispensers = []
+        self.level = frame.get("session", {}).get("level", 0)
+        self._prev_player_x = -1
+        self._prev_player_y = -1
+
+        self._parse()
+
+    def _parse(self):
+        """Scan frame["screen"] and populate entities."""
+        screen = self.frame.get("screen", [])
+        for y, row in enumerate(screen):
+            for x, char in enumerate(row):
+                if char in BotConfig.PLAYER_CHARS:
+                    self.player_x, self.player_y, self.player_char = x, y, char
+                elif char in BotConfig.ROCK_CHARS:
+                    self.rocks.append({"x": x, "y": y})
+                elif char in BotConfig.GHOST_CHARS:
+                    self.ghosts.append({"x": x, "y": y})
+                elif char == BotConfig.LADDER:
+                    self.ladders.append({"x": x, "y": y})
+                elif char == 'R':
+                    self.dispensers.append({"x": x, "y": y, "type": "rock"})
+                elif char == 'G':
+                    self.dispensers.append({"x": x, "y": y, "type": "ghost"})
+                elif char == 'K':
+                    self.keys.append({"x": x, "y": y})
+
+    @property
+    def player_found(self):
+        """Player was located on screen."""
+        return self.player_x >= 0 and self.player_y >= 0
+
+    @property
+    def is_falling(self):
+        """Player is currently falling (next to ground but not on it)."""
+        screen = self.frame.get("screen", [])
+        return (self.player_y + 1 < len(screen) and
+                self.char_at(self.player_x, self.player_y + 1) == ' ')
+
+    @property
+    def is_stopped(self):
+        """Player appears to be stationary."""
+        return self.player_char in {'p', 'b'}
+
+    def respawned(self, prev_state):
+        """Detect if player was reset to spawn (5, 18)."""
+        if prev_state is None:
+            return False
+        # Respawn detected if player is at spawn and was previously further away
+        return (self.player_x == 5 and self.player_y == 18 and
+                (prev_state.player_x > 6 or prev_state.player_y < 17))
+
+    def char_at(self, x, y):
+        """Safe accessor for screen[y][x]."""
+        screen = self.frame.get("screen", [])
+        if 0 <= y < len(screen) and 0 <= x < len(screen[y]):
+            return screen[y][x]
+        return ' '
+
+    def ladder_cols(self):
+        """Return set of x-columns containing ladder tiles."""
+        return {ladder["x"] for ladder in self.ladders}
+
+    def is_on_ladder(self):
+        """Player is on a ladder tile."""
+        return self.char_at(self.player_x, self.player_y) == BotConfig.LADDER
+
+    def ladder_above(self, x, y):
+        """Is there a ladder directly above (y-1)."""
+        return self.char_at(x, y - 1) == BotConfig.LADDER
+
+
+class HazardDetector:
+    """Detects rock and ghost threats; suggests evasion actions."""
+
+    def __init__(self):
+        self._prev_rocks = []
+        self.dodge_cooldown = 0
+
+    def update(self, state):
+        """Check for hazards; return action to override navigator, or None."""
+        self.dodge_cooldown = max(0, self.dodge_cooldown - 1)
+
+        # Skip hazard avoidance at spawn area (x <= 10) to let bot escape
+        if state.player_x <= 10:
+            self._prev_rocks = state.rocks
+            return None
+
+        # Enrich rocks with velocity and relative position
+        self._annotate_rocks(state)
+
+        # Priority 1: check for rocks
+        rock_action = self._check_rocks(state)
+        if rock_action:
+            return rock_action
+
+        # Priority 2: check for ghosts
+        ghost_action = self._check_ghosts(state)
+        if ghost_action:
+            return ghost_action
+
+        self._prev_rocks = state.rocks
+        return None
+
+    def _annotate_rocks(self, state):
+        """Add velocity (vx, vy) and relative position (dx, dy) to rocks."""
+        for rock in state.rocks:
+            # Match rock to previous frame by proximity
+            prev = self._find_prev_rock(rock)
+            rock["vx"] = rock["x"] - prev["x"] if prev else 0
+            rock["vy"] = rock["y"] - prev["y"] if prev else 0
+            rock["dx"] = rock["x"] - state.player_x
+            rock["dy"] = rock["y"] - state.player_y
+
+    def _find_prev_rock(self, rock):
+        """Find closest rock from previous frame (proxy for identity)."""
+        if not self._prev_rocks:
+            return {"x": rock["x"], "y": rock["y"]}
+
+        candidates = [
+            pr for pr in self._prev_rocks
+            if abs(pr["x"] - rock["x"]) <= 1 and abs(pr["y"] - rock["y"]) <= 1
+        ]
+
+        if candidates:
+            return min(candidates, key=lambda pr: abs(pr["x"] - rock["x"]) + abs(pr["y"] - rock["y"]))
+        return {"x": rock["x"], "y": rock["y"]}
+
+    def _check_rocks(self, state):
+        """Analyze rock threats and suggest evasion (or None)."""
+        if state.is_on_ladder() or self.dodge_cooldown > 0 or state.player_char == 'b':
+            return None
+
+        h_threats = [
+            rock for rock in state.rocks
+            if rock["dy"] == 0 and abs(rock["dx"]) <= BotConfig.H_THREAT_DIST
+            and ((rock["dx"] > 0 and rock["vx"] <= 0) or
+                 (rock["dx"] < 0 and rock["vx"] >= 0) or
+                 abs(rock["dx"]) <= 2)
+        ]
+
+        # "Overhead" = rock directly above (1 row up), within horizontal range, and falling
+        overhead = [
+            rock for rock in state.rocks
+            if rock["dy"] == -1 and abs(rock["dx"]) <= BotConfig.OVERHEAD_COLS
+            and rock["vy"] > 0  # Only falling rocks, not stationary ones
+        ]
+
+        if not h_threats and not overhead:
+            return None
+
+        # Priority: overhead + horizontal threat → STOP
+        if h_threats and overhead:
+            print(f"DANGER: Rock overhead AND horizontal. STOPPING.")
+            self.dodge_cooldown = BotConfig.DODGE_COOLDOWN
+            return "STOP"
+
+        # Horizontal threat only
+        if h_threats:
+            closest = min(h_threats, key=lambda t: abs(t["dx"]))
+            if abs(closest["dx"]) <= BotConfig.H_DODGE_DIST:
+                # Before jumping, check if rock is directly above (dy == -1)
+                if any(rock["dx"] == closest["dx"] and rock["dy"] == -1 for rock in state.rocks):
+                    # Don't jump into falling rock
+                    print(f"DODGE: Rock horizontal at dx={closest['dx']}, but rock overhead. Moving sideways.")
+                    direction = "LEFT" if closest["dx"] > 0 else "RIGHT"
+                    self.dodge_cooldown = BotConfig.DODGE_COOLDOWN
+                    return direction
+
+                print(f"DODGE: Rock at dx={closest['dx']}. JUMPING.")
+                self.dodge_cooldown = BotConfig.DODGE_COOLDOWN
+                return "JUMP"
+
+        # Overhead only → move away from cluster centroid
+        if overhead:
+            centroid_x = sum(r["x"] for r in overhead) / len(overhead)
+            direction = "LEFT" if state.player_x > centroid_x else "RIGHT"
+            print(f"DANGER: Rock overhead. Moving {direction}.")
+            self.dodge_cooldown = BotConfig.DODGE_COOLDOWN
+            return direction
+
+        return None
+
+    def _check_ghosts(self, state):
+        """Analyze ghost threats and suggest evasion (or None)."""
+        for ghost in state.ghosts:
+            dx = ghost["x"] - state.player_x
+            dy = ghost["y"] - state.player_y
+            dist = abs(dx) + abs(dy)  # Manhattan distance
+
+            # Adjacent: reverse direction
+            if dist <= 1:
+                direction = "LEFT" if dx > 0 else "RIGHT"
+                print(f"GHOST ADJACENT: Reversing direction to {direction}.")
+                return direction
+
+            # Same row, approaching
+            if dy == 0 and 0 < abs(dx) <= BotConfig.GHOST_THREAT_DIST:
+                if (dx > 0 and ghost["x"] > state.player_x) or (dx < 0 and ghost["x"] < state.player_x):
+                    print(f"GHOST APPROACH: Jumping away.")
+                    return "JUMP"
+
+            # Skip ghost avoidance on ladders - let the player climb through ghosts
+            # (they'll be handled after dismounting)
+
+        return None
+
+
+class Navigator:
+    """Manages step-based navigation with ladder-alignment sub-state."""
+
+    class Step:
+        """Represents one navigation goal."""
+        def __init__(self, name, action_fn, completion_fn):
+            self.name = name
+            self.action_fn = action_fn          # (state) -> action
+            self.completion_fn = completion_fn  # (state) -> bool
+
+    def __init__(self, steps):
+        self.steps = steps
+        self.current_step = 0
+        self._align_state = None
+        self._target_col = None
+        self._respawn_handled = False  # Track whether we've already reset for this respawn
+
+    def tick(self, state):
+        """Advance navigation. Return action or None if step complete."""
+        if self.current_step >= len(self.steps):
+            return None
+
+        step = self.steps[self.current_step]
+
+        # Check completion
+        if step.completion_fn(state):
+            print(f"[{step.name}] Complete at ({state.player_x}, {state.player_y}). Next step.")
+            self.current_step += 1
+            self._align_state = None
+            self._target_col = None
+            return "STOP"  # Clear intent buffer
+
+        # Get action from step (steps now handle their own alignment)
+        action = step.action_fn(state)
+        return action
+
+    def _align_then_climb(self, state):
+        """
+        Align player horizontally with ladder, then climb.
+        Returns LEFT/RIGHT/UP or None.
+        """
+        # Initialize target on first UP
+        if self._target_col is None:
+            cols = state.ladder_cols()
+            if not cols:
+                print("ERROR: No ladders found, but UP requested.")
+                return None
+            self._target_col = min(cols, key=lambda c: abs(c - state.player_x))
+            print(f"Alignment: targeting ladder at column {self._target_col}.")
+
+        # Not yet aligned
+        if state.player_x != self._target_col:
+            if state.player_x < self._target_col:
+                return "RIGHT"
+            else:
+                return "LEFT"
+
+        # Aligned: check if ladder is present
+        if state.is_on_ladder():
+            return "UP"
+
+        # Ladder above?
+        if state.ladder_above(state.player_x, state.player_y):
+            return "UP"
+
+        # No ladder; stop alignment
+        print(f"ERROR: Aligned at {state.player_x} but no ladder.")
+        self._align_state = None
+        self._target_col = None
+        return None
+
+    def reset(self):
+        """Called on respawn detection."""
+        self.current_step = 0
+        self._align_state = None
+        self._target_col = None
+        self._respawn_handled = True
+        print("Navigator reset on respawn.")
+
+    def mark_away_from_spawn(self):
+        """Called when player leaves spawn, allowing respawn detection again."""
+        self._respawn_handled = False
+
+
+def ladder_near(state, hint_col, threshold=10):
+    """Helper: is there a ladder within threshold cols of hint_col?"""
+    cols = state.ladder_cols()
+    return any(abs(col - hint_col) <= threshold for col in cols)
+
+
+def make_climb_action(target_x):
+    """Factory for climb actions that know their target ladder column."""
+    def climb_action(state):
+        # First, check if we're on a ladder and can climb
+        if state.is_on_ladder() or state.ladder_above(state.player_x, state.player_y):
+            return "UP"
+
+        # Not on ladder yet. Check if there's a ladder adjacent that we should move to
+        for dx in [-1, 0, 1]:
+            check_x = state.player_x + dx
+            if state.char_at(check_x, state.player_y) == BotConfig.LADDER:
+                # Found a ladder nearby, move toward it
+                if dx < 0:
+                    return "LEFT"
+                elif dx > 0:
+                    return "RIGHT"
+                else:
+                    # We're on it but is_on_ladder() returned False? Try to re-center
+                    return "STOP"
+
+        # No ladder nearby. Move toward target x-coordinate
+        if state.player_x < target_x:
+            return "RIGHT"
+        elif state.player_x > target_x:
+            return "LEFT"
+        else:
+            # At target but no ladder found, wait
+            return "STOP"
+    return climb_action
+
+
+def make_level1_steps():
+    """Construct 12 steps for Level 1 navigation."""
+
+    steps = []
+
+    # Step 1: Move to first ladder (x=57)
+    def step1_action(state):
+        # If just respawned on a ladder, jump off
+        if state.is_on_ladder() and state.player_x <= 6:
+            return "JUMP"
+        # Jump at platform gap
+        if 12 <= state.player_x <= 14:
+            return "JUMP"
+        # Otherwise move right
+        return "RIGHT"
+
+    steps.append(Navigator.Step(
+        name="Go to first ladder",
+        action_fn=step1_action,
+        completion_fn=lambda state: state.player_x >= 57 and state.player_y == 18
+    ))
+
+    # Step 2: Climb first ladder (x=57)
+    steps.append(Navigator.Step(
+        name="Climb first ladder",
+        action_fn=make_climb_action(57),
+        completion_fn=lambda state: state.player_y <= 14
+    ))
+
+    # Step 3: Move left across platform 1
+    steps.append(Navigator.Step(
+        name="Move left across platform 1",
+        action_fn=lambda state: "JUMP" if state.player_x in [49, 27] else "LEFT",
+        completion_fn=lambda state: state.player_x <= 16
+    ))
+
+    # Step 4: Climb second ladder (x=16)
+    steps.append(Navigator.Step(
+        name="Climb second ladder",
+        action_fn=make_climb_action(16),
+        completion_fn=lambda state: state.player_y <= 10
+    ))
+
+    # Step 5: Move right across platform 2
+    steps.append(Navigator.Step(
+        name="Move right across platform 2",
+        action_fn=lambda state: "RIGHT",
+        completion_fn=lambda state: state.player_x >= 27
+    ))
+
+    # Step 6: Climb third ladder (x=27)
+    steps.append(Navigator.Step(
+        name="Climb third ladder",
+        action_fn=make_climb_action(27),
+        completion_fn=lambda state: state.player_y <= 6
+    ))
+
+    # Step 7: Move left across platform 3
+    steps.append(Navigator.Step(
+        name="Move left across platform 3",
+        action_fn=lambda state: "LEFT",
+        completion_fn=lambda state: state.player_x <= 16
+    ))
+
+    # Step 8: Climb fourth ladder (x=16)
+    steps.append(Navigator.Step(
+        name="Climb fourth ladder",
+        action_fn=make_climb_action(16),
+        completion_fn=lambda state: state.player_y <= 2
+    ))
+
+    # Step 9: Move right across top platform
+    steps.append(Navigator.Step(
+        name="Move right across top platform",
+        action_fn=lambda state: "RIGHT",
+        completion_fn=lambda state: state.player_x >= 57
+    ))
+
+    # Step 10: Stop at final ladder location
+    steps.append(Navigator.Step(
+        name="Stop at final ladder",
+        action_fn=lambda state: "STOP",
+        completion_fn=lambda state: state.player_char == 'g'
+    ))
+
+    # Step 11: Jump up to grab goal
+    steps.append(Navigator.Step(
+        name="Jump up to grab goal ladder",
+        action_fn=lambda state: "JUMP",
+        completion_fn=lambda state: state.player_char == 'g' and state.player_y < 2
+    ))
+
+    # Step 12: Climb to goal (x=57)
+    steps.append(Navigator.Step(
+        name="Climb to goal",
+        action_fn=make_climb_action(57),
+        completion_fn=lambda state: state.player_y <= 0
+    ))
+
+    return steps
+
+
+async def run_bot():
+    """Main bot loop: frame-by-frame navigation + hazard avoidance."""
+
+    url = BotConfig.WS_URL
+    started = False
+    last_action = None
+    prev_state = None
+
+    detector = HazardDetector()
+    navigator = Navigator(make_level1_steps())
+
+    try:
+        async with websockets.connect(url) as ws:
+            print("Bot connected to game server")
+
+            async for message in ws:
+                frame = json.loads(message)
+
+                # Wait for session to start
+                if not frame.get("session"):
+                    if not started:
+                        print("Starting game...")
+                        await ws.send(json.dumps({"type": "key", "key": "P"}))
+                        started = True
+                    continue
+
+                # Parse current frame
+                state = GameState(frame)
+
+                # Level check
+                if state.level > 1:
+                    print("Level 1 complete! Exiting.")
+                    sys.exit(0)
+
+                # Skip if no player on screen
+                if not state.player_found:
+                    prev_state = state
+                    continue
+
+                # Respawn detection (only reset once per respawn)
+                if state.respawned(prev_state) and not navigator._respawn_handled:
+                    print("Player respawned. Resetting route...")
+                    navigator.reset()
+                elif state.player_x > 10:
+                    # Player has moved away from spawn, allow respawn detection again
+                    navigator.mark_away_from_spawn()
+
+                # Hazard override
+                action = detector.update(state)
+
+                # Navigation (if no hazard)
+                if action is None:
+                    action = navigator.tick(state)
+
+                # Send action: always send movement commands (for Pac-Man continuous motion),
+                # and send state changes when they differ from last action
+                if action:
+                    is_movement = action in ["RIGHT", "LEFT", "UP", "DOWN"]
+                    if is_movement or action != last_action:
+                        await ws.send(json.dumps({"type": "input", "action": action}))
+                        last_action = action
+
+                prev_state = state
+
+    except Exception as e:
+        print(f"Error: {e}")
+
+
+if __name__ == "__main__":
+    asyncio.run(run_bot())

@@ -104,12 +104,23 @@ export class ServerGame {
             throw new Error(`Unknown action: ${actionName}`);
         }
 
+        console.log(`Injecting action: ${actionName}`);
         const actionCode = Input.Action[actionName];
         Input.buffer.push({
             at: new Date().getTime(),
             key: actionName,
             code: actionName,
             action: actionCode
+        });
+    }
+
+    injectKey(key, code) {
+        console.log(`Injecting key: ${key} (code: ${code || key})`);
+        Input.buffer.push({
+            at: new Date().getTime(),
+            key: key,
+            code: code || key,
+            action: Input.KeyMapping[code || key] || Input.Action.STOP
         });
     }
 
