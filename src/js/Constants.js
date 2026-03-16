@@ -72,6 +72,10 @@ export const HIDDEN_FACTOR_MAX_ROCKS = 2;
 export const SCORE_ROCK = 1;
 export const SCORE_STATUE = 2;
 export const SCORE_TREASURE = 3;
+export const SCORE_KEY = 4;
 
 // 1-Up
 export const NEW_LIFE_SCORE = 10_000;
+
+// Maximum number of ghosts on screen at once
+export const MAX_GHOSTS = 3;

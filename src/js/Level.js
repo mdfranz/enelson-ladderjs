@@ -29,6 +29,7 @@ export const Level = {
 
         let layout = level.layout.map(row => row.split(''));
         let dispensers = [];
+        let ghostDispensers = [];
         let player;
 
         // Sanity check
@@ -43,12 +44,16 @@ export const Level = {
                 // Sanity check
                 if (!layout[y][x]) layout[y][x] = ' ';
 
-                // Der Dispensers (V) and Der Eaters (*) have behaviors, so it is convenient for us
+                // Der Dispensers (V) and Ghost Dispensers (G) have behaviors, so it is convenient for us
                 // to construct a list of them, but they are permanent parts of the layout, so we can
                 // leave them as part of the level and draw them normally.
 
                 if (layout[y][x] === 'V') {
                     dispensers.push({ x, y });
+                }
+
+                if (layout[y][x] === 'G') {
+                    ghostDispensers.push({ x, y });
                 }
 
                 // Treasure ($), Statues (&), and the Lad (p) are transient - the player moves around and
@@ -70,6 +75,7 @@ export const Level = {
             name: level.name,
             layout,
             dispensers,
+            ghostDispensers,
             player
         };
     }

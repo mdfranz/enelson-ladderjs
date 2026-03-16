@@ -6,10 +6,11 @@
  * managed by the playing field.
  */
 
-import { LEVEL_COLS, SCORE_ROCK, SCORE_STATUE, SCORE_TREASURE, MAX_ROCKS, DISPENSER_MAX_ROCKS, HIDDEN_FACTOR_MAX_ROCKS } from './Constants';
+import { LEVEL_COLS, SCORE_ROCK, SCORE_STATUE, SCORE_TREASURE, SCORE_KEY, MAX_ROCKS, MAX_GHOSTS, DISPENSER_MAX_ROCKS, HIDDEN_FACTOR_MAX_ROCKS } from './Constants';
 import { Game } from './Game';
 import { Player } from './Player';
 import { Rock } from './Rock';
+import { Ghost } from './Ghost';
 import { State } from './Entity';
 import { Screen } from './Screen';
 import { Level } from './Level';
@@ -22,6 +23,7 @@ export class PlayingField {
         // Store level-related info
         this.layout = level.layout;
         this.dispensers = level.dispensers;
+        this.ghostDispensers = level.ghostDispensers;
         this.time = 2000;
 
         // Initialize player
@@ -29,6 +31,9 @@ export class PlayingField {
 
         // Initialize list of rocks (empty)
         this.rocks = [];
+        
+        // Initialize list of ghosts (empty)
+        this.ghosts = [];
 
         // Not winning yet (while "winning" the player stops moving and we add up the bonus score)
         this.winning = false;
@@ -67,6 +72,9 @@ export class PlayingField {
         // Move rocks
         for (let rock of this.rocks) rock.update(this, moveFrame);
 
+        // Move ghosts
+        for (let ghost of this.ghosts) ghost.update(this, moveFrame);
+
         // Check if player should be dead (after moving rocks)
         if (moveFrame) this.checkIfPlayerShouldDie(Game.session);
 
@@ -75,6 +83,21 @@ export class PlayingField {
             if (this.isStatue(this.player.x, this.player.y)) {
                 this.layout[this.player.y][this.player.x] = ' ';
                 Game.session.updateScore(SCORE_STATUE);
+            }
+
+            // Collect keys
+            if (this.isKey(this.player.x, this.player.y)) {
+                this.layout[this.player.y][this.player.x] = ' ';
+                Game.session.updateScore(SCORE_KEY);
+                Audio.play(Audio.score);
+                // Open all doors
+                for (let y = 0; y < this.layout.length; y++) {
+                    for (let x = 0; x < this.layout[y].length; x++) {
+                        if (this.layout[y][x] === '#') {
+                            this.layout[y][x] = ' ';
+                        }
+                    }
+                }
             }
 
             // Collect treasure (ends the current level)
@@ -114,11 +137,18 @@ export class PlayingField {
 
             // Kill dead rocks
             this.rocks = this.rocks.filter(rock => rock.state !== State.DEAD);
+            this.ghosts = this.ghosts.filter(ghost => ghost.state !== State.DEAD);
 
             // Dispense new rocks
             if (this.rocks.length < this.maxRocks() && Math.random() > 0.91) {
                 let dispenser = this.dispensers[Math.floor(Math.random() * this.dispensers.length)];
                 this.rocks.push(new Rock(dispenser));
+            }
+            
+            // Dispense new ghosts
+            if (this.ghosts.length < MAX_GHOSTS && this.ghostDispensers.length > 0 && Math.random() > 0.99) {
+                let dispenser = this.ghostDispensers[Math.floor(Math.random() * this.ghostDispensers.length)];
+                this.ghosts.push(new Ghost(dispenser));
             }
 
             // Dying player
@@ -143,6 +173,9 @@ export class PlayingField {
 
         // Draw rocks
         this.rocks.forEach(rock => rock.draw());
+
+        // Draw ghosts
+        this.ghosts.forEach(ghost => ghost.draw());
     }
 
     //
@@ -151,14 +184,14 @@ export class PlayingField {
     //
 
     onSolid(x, y) {
-        return ['=', '-', 'H', '|'].includes(this.layout[y + 1][x]) || this.layout[y][x] === 'H';
+        return ['=', '-', 'H', '|', '#'].includes(this.layout[y + 1][x]) || this.layout[y][x] === 'H';
     }
 
     emptySpace(x, y) {
         if (x < 0 || x >= LEVEL_COLS) {
             return false;
         } else {
-            return !['|', '='].includes(this.layout[y][x]);
+            return !['|', '=', '#'].includes(this.layout[y][x]);
         }
     }
 
@@ -172,6 +205,10 @@ export class PlayingField {
 
     isTreasure(x, y) {
         return this.layout[y][x] === '$';
+    }
+
+    isKey(x, y) {
+        return this.layout[y][x] === 'K';
     }
 
     isTrampoline(x, y) {
@@ -245,6 +282,14 @@ export class PlayingField {
                 } else if (this.player.y === this.rocks[i].y - 2 && this.emptySpace(this.player.x, this.player.y + 1) && this.emptySpace(this.player.x, this.player.y + 2)) {
                     Game.session.updateScore(SCORE_ROCK);
                 }
+            }
+        }
+
+        for (let i = 0; i < this.ghosts.length; i++) {
+            if (this.player.x === this.ghosts[i].x && this.player.y === this.ghosts[i].y) {
+                this.player.kill();
+                this.ghosts.splice(i, 1);
+                break;
             }
         }
     }
