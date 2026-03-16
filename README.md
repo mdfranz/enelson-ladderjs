@@ -26,10 +26,35 @@ One difference between the previous ports and `ladderjs` is that I wanted ladder
 
 You can play ladderjs in your browser at [ladderjs.7tonshark.com](https://ladderjs.7tonshark.com).
 
+## Core Mechanics
+
+Ladder is an ASCII-based platformer where you navigate Lad through various levels.
+
+- **Lad (`p`)**: Your character. Use `WASD` or Arrow keys to move and `Space` to jump.
+- **Treasure (`$`)**: Your primary goal. Collect these to finish the level.
+- **Statues (`&`)**: Collect these for bonus points proportional to your remaining time.
+- **Rocks (`o`)**: Falling hazards dispensed from `V` tiles. Jump over them for points!
+- **Ladders (`H`)**: Essential for vertical navigation.
+- **Fire (`^`)**: Deadly floor hazards.
+- **Trampolines (`.`)**: Bounces you in a random direction.
+- **Keys (`K`) & Doors (`#`)**: A puzzle element—collecting a key removes all door tiles in the level.
+- **Ghosts (`W`)**: Chaser enemies that spawn from `G` dispensers and actively track your movement.
+
+## Architecture
+
+The project follows a modular, decoupled design aimed at being easy to read and extend:
+
+- **State Management**: `Game.js` runs the top-level loop, while `GameSession.js` tracks persistent state like score and lives.
+- **Level Logic**: `PlayingField.js` handles all real-time interactions, collisions, and entity updates for a specific level.
+- **ASCII Rendering**: `Screen.js` maintains a virtual 80x24 character buffer, which `Viewport.js` then renders to the HTML5 Canvas with retro-style scaling and scanline effects.
+- **Entity System**: Entities like `Player`, `Rock`, and `Ghost` are encapsulated in their own classes, making it simple to add new behaviors.
+- **Tooling**: A Gulp-based pipeline handles asset generation, JavaScript bundling via Rollup, and minification.
+
 ## Changelog
 
 | Version | Summary |
 | --- | --- |
+| v0.5.0 | New mechanics: Keys, Doors, and Ghost chaser enemies. Refactored level parsing. |
 | v0.4.0 | Simple sound effects using the zzfx library. |
 | v0.3.0 | Better air control (stop / change directions mid air), like original game. |
 | v0.2.0 | Made available publicly at [ladderjs.7tonshark.com](https://ladderjs.7tonshark.com). |
