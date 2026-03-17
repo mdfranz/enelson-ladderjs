@@ -8,6 +8,21 @@ import asyncio
 import json
 import websockets
 import sys
+import logging
+from datetime import datetime
+
+
+class JSONFormatter(logging.Formatter):
+    """Custom formatter to output logs in JSON format."""
+    def format(self, record):
+        log_data = {
+            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "level": record.levelname,
+            "msg": record.getMessage(),
+        }
+        if hasattr(record, "extra_data"):
+            log_data.update(record.extra_data)
+        return json.dumps(log_data)
 
 
 class BotConfig:
@@ -196,7 +211,9 @@ class HazardDetector:
 
         # Priority: overhead + horizontal threat → STOP
         if h_threats and overhead:
-            print(f"DANGER: Rock overhead AND horizontal. STOPPING.")
+            closest = min(h_threats, key=lambda t: abs(t["dx"]))
+            logging.warning("DANGER: Rock overhead AND horizontal. STOPPING.",
+                            extra={"extra_data": {"rock_dx": closest["dx"], "overhead": True}})
             self.dodge_cooldown = BotConfig.DODGE_COOLDOWN
             return "STOP"
 
@@ -207,12 +224,14 @@ class HazardDetector:
                 # Before jumping, check if rock is directly above (dy == -1)
                 if any(rock["dx"] == closest["dx"] and rock["dy"] == -1 for rock in state.rocks):
                     # Don't jump into falling rock
-                    print(f"DODGE: Rock horizontal at dx={closest['dx']}, but rock overhead. Moving sideways.")
+                    logging.warning("DODGE: Rock horizontal, but rock overhead. Moving sideways.",
+                                    extra={"extra_data": {"rock_dx": closest["dx"], "overhead": True}})
                     direction = "LEFT" if closest["dx"] > 0 else "RIGHT"
                     self.dodge_cooldown = BotConfig.DODGE_COOLDOWN
                     return direction
 
-                print(f"DODGE: Rock at dx={closest['dx']}. JUMPING.")
+                logging.warning("DODGE: Rock horizontal. JUMPING.",
+                                extra={"extra_data": {"rock_dx": closest["dx"]}})
                 self.dodge_cooldown = BotConfig.DODGE_COOLDOWN
                 return "JUMP"
 
@@ -220,7 +239,8 @@ class HazardDetector:
         if overhead:
             centroid_x = sum(r["x"] for r in overhead) / len(overhead)
             direction = "LEFT" if state.player_x > centroid_x else "RIGHT"
-            print(f"DANGER: Rock overhead. Moving {direction}.")
+            logging.warning(f"DANGER: Rock overhead. Moving {direction}.",
+                            extra={"extra_data": {"overhead": True}})
             self.dodge_cooldown = BotConfig.DODGE_COOLDOWN
             return direction
 
@@ -236,13 +256,15 @@ class HazardDetector:
             # Adjacent: reverse direction
             if dist <= 1:
                 direction = "LEFT" if dx > 0 else "RIGHT"
-                print(f"GHOST ADJACENT: Reversing direction to {direction}.")
+                logging.warning(f"GHOST ADJACENT: Reversing direction to {direction}.",
+                                extra={"extra_data": {"ghost_dx": dx, "ghost_dy": dy}})
                 return direction
 
             # Same row, approaching
             if dy == 0 and 0 < abs(dx) <= BotConfig.GHOST_THREAT_DIST:
                 if (dx > 0 and ghost["x"] > state.player_x) or (dx < 0 and ghost["x"] < state.player_x):
-                    print(f"GHOST APPROACH: Jumping away.")
+                    logging.warning("GHOST APPROACH: Jumping away.",
+                                    extra={"extra_data": {"ghost_dx": dx, "ghost_dy": dy}})
                     return "JUMP"
 
             # Skip ghost avoidance on ladders - let the player climb through ghosts
@@ -277,7 +299,7 @@ class Navigator:
 
         # Check completion
         if step.completion_fn(state):
-            print(f"[{step.name}] Complete at ({state.player_x}, {state.player_y}). Next step.")
+            logging.info(f"[{step.name}] Complete at ({state.player_x}, {state.player_y}). Next step.")
             self.current_step += 1
             self._align_state = None
             self._target_col = None
@@ -296,10 +318,10 @@ class Navigator:
         if self._target_col is None:
             cols = state.ladder_cols()
             if not cols:
-                print("ERROR: No ladders found, but UP requested.")
+                logging.error("ERROR: No ladders found, but UP requested.")
                 return None
             self._target_col = min(cols, key=lambda c: abs(c - state.player_x))
-            print(f"Alignment: targeting ladder at column {self._target_col}.")
+            logging.info(f"Alignment: targeting ladder at column {self._target_col}.")
 
         # Not yet aligned
         if state.player_x != self._target_col:
@@ -317,7 +339,7 @@ class Navigator:
             return "UP"
 
         # No ladder; stop alignment
-        print(f"ERROR: Aligned at {state.player_x} but no ladder.")
+        logging.error(f"ERROR: Aligned at {state.player_x} but no ladder.")
         self._align_state = None
         self._target_col = None
         return None
@@ -328,7 +350,7 @@ class Navigator:
         self._align_state = None
         self._target_col = None
         self._respawn_handled = True
-        print("Navigator reset on respawn.")
+        logging.info("Navigator reset on respawn.")
 
     def mark_away_from_spawn(self):
         """Called when player leaves spawn, allowing respawn detection again."""
@@ -344,9 +366,26 @@ def ladder_near(state, hint_col, threshold=10):
 def make_climb_action(target_x):
     """Factory for climb actions that know their target ladder column."""
     def climb_action(state):
-        # First, check if we're on a ladder and can climb
+        # Can we climb?
         if state.is_on_ladder() or state.ladder_above(state.player_x, state.player_y):
-            return "UP"
+            # Check if there's actually something to climb INTO
+            if state.char_at(state.player_x, state.player_y - 1) in [BotConfig.LADDER, '&', '$']:
+                return "UP"
+            # Otherwise, we are at the top of a ladder but it doesn't continue up.
+            # If there's another ladder within jump reach, jump for it!
+            if state.char_at(state.player_x, state.player_y - 2) == BotConfig.LADDER:
+                return "JUMP"
+            # Maybe we just need to dismount?
+            return "STOP"
+
+        # If we are at the target x but not on a ladder, we might need to jump to grab a broken one
+        if state.player_x == target_x:
+            # Check if there's a ladder above us within jump reach (up to 2 tiles)
+            # Standing at y, JUMP reaches y-1 then y-2.
+            if state.char_at(state.player_x, state.player_y - 1) == BotConfig.LADDER or \
+               state.char_at(state.player_x, state.player_y - 2) == BotConfig.LADDER:
+                return "JUMP"
+            return "STOP"
 
         # Look for a ladder within ±3 columns of target
         closest_ladder = None
@@ -474,6 +513,11 @@ def make_level1_steps():
 
 async def run_bot():
     """Main bot loop: frame-by-frame navigation + hazard avoidance."""
+    
+    # Configure logging
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(JSONFormatter())
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
 
     url = BotConfig.WS_URL
     started = False
@@ -485,7 +529,7 @@ async def run_bot():
 
     try:
         async with websockets.connect(url) as ws:
-            print("Bot connected to game server")
+            logging.info("Bot connected to game server")
 
             async for message in ws:
                 frame = json.loads(message)
@@ -493,7 +537,7 @@ async def run_bot():
                 # Wait for session to start
                 if not frame.get("session"):
                     if not started:
-                        print("Starting game...")
+                        logging.info("Starting game...")
                         await ws.send(json.dumps({"type": "key", "key": "P"}))
                         started = True
                     continue
@@ -503,7 +547,7 @@ async def run_bot():
 
                 # Level check
                 if state.level > 1:
-                    print("Level 1 complete! Exiting.")
+                    logging.info("Level 1 complete! Exiting.")
                     sys.exit(0)
 
                 # Skip if no player on screen
@@ -513,7 +557,7 @@ async def run_bot():
 
                 # Respawn detection (only reset once per respawn)
                 if state.respawned(prev_state) and not navigator._respawn_handled:
-                    print("Player respawned. Resetting route...")
+                    logging.info("Player respawned. Resetting route...")
                     navigator.reset()
                 elif state.player_x > 10:
                     # Player has moved away from spawn, allow respawn detection again
@@ -531,13 +575,20 @@ async def run_bot():
                 if action:
                     is_movement = action in ["RIGHT", "LEFT", "UP", "DOWN"]
                     if is_movement or action != last_action:
+                        logging.info(f"Action: {action}", extra={"extra_data": {
+                            "action": action,
+                            "px": state.player_x,
+                            "py": state.player_y,
+                            "pchar": state.player_char,
+                            "step": navigator.current_step
+                        }})
                         await ws.send(json.dumps({"type": "input", "action": action}))
                         last_action = action
 
                 prev_state = state
 
     except Exception as e:
-        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
 
 
 if __name__ == "__main__":

@@ -10,9 +10,12 @@
   },
   "author": "Elliot Nelson",
   "devDependencies": {
+    "@rollup/plugin-alias": "^5.1.0",
+    "@rollup/plugin-json": "^4.1.0",
     "ase-parser": "0.0.12",
     "chalk": "^2.4.2",
     "fancy-log": "^1.3.3",
+    "glob": "^7.1.6",
     "gulp": "^4.0.2",
     "gulp-advzip": "^1.2.0",
     "gulp-clean-css": "^3.10.0",
@@ -29,13 +32,11 @@
     "image-to-base64": "^2.1.1",
     "imagemin-advpng": "^6.0.0",
     "rollup": "^2.26.4",
-    "@rollup/plugin-json": "^4.1.0",
-    "@rollup/plugin-alias": "^5.1.0",
-    "glob": "^7.1.6",
     "sprintf-js": "^1.1.2"
   },
   "dependencies": {
     "express": "^4.18.0",
+    "pino": "^10.3.1",
     "ws": "^8.16.0"
   }
 }

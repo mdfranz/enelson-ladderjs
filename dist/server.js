@@ -4,11 +4,13 @@ var express = require('express');
 var path = require('path');
 var ws = require('ws');
 var http = require('http');
+var pino = require('pino');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
 
 var express__default = /*#__PURE__*/_interopDefaultLegacy(express);
 var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
+var pino__default = /*#__PURE__*/_interopDefaultLegacy(pino);
 
 /**
  * ServerSprite - Minimal stub for headless server environment
@@ -81,6 +83,10 @@ const Audio = {
         // No-op
     }
 };
+
+const logger = pino__default["default"]({
+  timestamp: pino__default["default"].stdTimeFunctions.isoTime
+});
 
 /**
  * `Input` is a singleton that helps us map keyboard events in the browser
@@ -158,7 +164,7 @@ const Input = {
                 };
                 Input.buffer.push(entry);
                 Input.history.push(entry);
-                console.log(entry);
+                logger.info({ input: entry }, 'Key down');
 
                 // Hack to ensure we initialize audio after user interacts with the game. Sometimes
                 // the browser will just ignore attempts to play audio if the user has not interacted
@@ -1701,7 +1707,7 @@ class GameSession {
             this.field = undefined;
         } else if (recentKeystrokes.includes('IDDQD')) {
             Input.consume(true);
-            console.log('god mode');
+            logger.info('God mode activated');
         } else if (recentKeystrokes.includes('IDKFA')) {
             // Immediately end the current level as if we'd touched the treasure.
             Input.consume(true);
@@ -1935,13 +1941,32 @@ class ServerGame {
         };
     }
 
+    _findPlayer() {
+        if (!Screen.screen) return { x: -1, y: -1 };
+        const playerChars = ['p', 'q', 'g', 'b'];
+        for (let y = 0; y < Screen.screen.length; y++) {
+            for (let x = 0; x < Screen.screen[y].length; x++) {
+                if (playerChars.includes(Screen.screen[y][x])) {
+                    return { x, y, char: Screen.screen[y][x] };
+                }
+            }
+        }
+        return { x: -1, y: -1 };
+    }
+
     injectAction(actionName) {
         // Map action name to Input.Action code
         if (!(actionName in Input.Action)) {
             throw new Error(`Unknown action: ${actionName}`);
         }
 
-        console.log(`Injecting action: ${actionName}`);
+        const pos = this._findPlayer();
+        logger.info({ 
+            action: actionName, 
+            px: pos.x, 
+            py: pos.y, 
+            level: Game.session ? Game.session.levelNumber : -1 
+        }, 'Injecting action');
         const actionCode = Input.Action[actionName];
         Input.buffer.push({
             at: new Date().getTime(),
@@ -1952,7 +1977,14 @@ class ServerGame {
     }
 
     injectKey(key, code) {
-        console.log(`Injecting key: ${key} (code: ${code || key})`);
+        const pos = this._findPlayer();
+        logger.info({ 
+            key, 
+            code: code || key, 
+            px: pos.x, 
+            py: pos.y,
+            level: Game.session ? Game.session.levelNumber : -1
+        }, 'Injecting key');
         Input.buffer.push({
             at: new Date().getTime(),
             key: key,
@@ -2099,6 +2131,6 @@ async function startServer(port = 3000) {
 
 const port = process.env.PORT || 3000;
 startServer(port).catch(err => {
-    console.error('Failed to start server:', err);
+    logger.error({ err }, 'Failed to start server');
     process.exit(1);
 });

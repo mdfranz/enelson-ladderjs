@@ -11,6 +11,7 @@ import { MainMenu } from './MainMenu';
 import { Input } from './Input';
 import { Audio } from './Audio';
 import { Screen } from './Screen';
+import logger from './logger.js';
 
 export class ServerGame {
     constructor() {
@@ -98,13 +99,32 @@ export class ServerGame {
         };
     }
 
+    _findPlayer() {
+        if (!Screen.screen) return { x: -1, y: -1 };
+        const playerChars = ['p', 'q', 'g', 'b'];
+        for (let y = 0; y < Screen.screen.length; y++) {
+            for (let x = 0; x < Screen.screen[y].length; x++) {
+                if (playerChars.includes(Screen.screen[y][x])) {
+                    return { x, y, char: Screen.screen[y][x] };
+                }
+            }
+        }
+        return { x: -1, y: -1 };
+    }
+
     injectAction(actionName) {
         // Map action name to Input.Action code
         if (!(actionName in Input.Action)) {
             throw new Error(`Unknown action: ${actionName}`);
         }
 
-        console.log(`Injecting action: ${actionName}`);
+        const pos = this._findPlayer();
+        logger.info({ 
+            action: actionName, 
+            px: pos.x, 
+            py: pos.y, 
+            level: Game.session ? Game.session.levelNumber : -1 
+        }, 'Injecting action');
         const actionCode = Input.Action[actionName];
         Input.buffer.push({
             at: new Date().getTime(),
@@ -115,7 +135,14 @@ export class ServerGame {
     }
 
     injectKey(key, code) {
-        console.log(`Injecting key: ${key} (code: ${code || key})`);
+        const pos = this._findPlayer();
+        logger.info({ 
+            key, 
+            code: code || key, 
+            px: pos.x, 
+            py: pos.y,
+            level: Game.session ? Game.session.levelNumber : -1
+        }, 'Injecting key');
         Input.buffer.push({
             at: new Date().getTime(),
             key: key,

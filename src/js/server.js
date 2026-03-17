@@ -5,9 +5,10 @@
  */
 
 import { startServer } from './HttpServer.js';
+import logger from './logger.js';
 
 const port = process.env.PORT || 3000;
 startServer(port).catch(err => {
-    console.error('Failed to start server:', err);
+    logger.error({ err }, 'Failed to start server');
     process.exit(1);
 });

@@ -18,6 +18,7 @@
  */
 
 import { Audio } from './Audio';
+import logger from './logger.js';
 
 // A list of in-game actions that can be performed by the player
 const Action = {
@@ -76,7 +77,7 @@ export const Input = {
                 };
                 Input.buffer.push(entry);
                 Input.history.push(entry);
-                console.log(entry);
+                logger.info({ input: entry }, 'Key down');
 
                 // Hack to ensure we initialize audio after user interacts with the game. Sometimes
                 // the browser will just ignore attempts to play audio if the user has not interacted

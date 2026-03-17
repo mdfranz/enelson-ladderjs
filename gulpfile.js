@@ -95,7 +95,7 @@ async function compileServerBuild() {
     try {
         const bundle = await rollup.rollup({
             input: 'src/js/server.js',
-            external: ['express', 'ws', 'path', 'http', 'url'],
+            external: ['express', 'ws', 'path', 'http', 'url', 'pino'],
             plugins: [
                 rollupAlias({
                     entries: [

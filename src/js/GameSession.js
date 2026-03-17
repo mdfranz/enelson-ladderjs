@@ -13,6 +13,7 @@ import { Level } from './Level';
 import { Screen } from './Screen';
 import { Input } from './Input';
 import { Audio } from './Audio';
+import logger from './logger.js';
 
 export class GameSession {
     constructor() {
@@ -158,7 +159,7 @@ export class GameSession {
             this.field = undefined;
         } else if (recentKeystrokes.includes('IDDQD')) {
             Input.consume(true);
-            console.log('god mode');
+            logger.info('God mode activated');
         } else if (recentKeystrokes.includes('IDKFA')) {
             // Immediately end the current level as if we'd touched the treasure.
             Input.consume(true);
