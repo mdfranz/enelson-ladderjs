@@ -38,6 +38,8 @@ const AsepriteCli = {
       options.push(`C:\\Program Files (x86)\\Aseprite\\Aseprite.exe`);
       options.push(`C:\\Program Files\\Aseprite\\Aseprite.exe`);
       options.push(`Aseprite`);
+    } else if (platform === 'linux') {
+      options.push(`aseprite`);
     }
 
     for (let option of options) {

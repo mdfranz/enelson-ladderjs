@@ -43,7 +43,7 @@ async function generateGameVersion() {
     fs.writeFileSync(file, JSON.stringify(data, undefined, 4), 'utf8');
 }
 
-async function compileBuild() {
+async function compileBuild(opts = {}) {
     try {
         const bundle = await rollup.rollup({
             input: 'src/js/index.js',
@@ -60,7 +60,7 @@ async function compileBuild() {
             file: 'temp/app.js',
             format: 'iife',
             name: 'app',
-            sourcemap: 'inline'
+            sourcemap: opts.sourcemap ? 'inline' : false
         });
     } catch (error) {
         console.error(error);
@@ -68,17 +68,38 @@ async function compileBuild() {
     }
 }
 
-function minifyBuild() {
-    return gulp.src('temp/app.js')
-        .pipe(sourcemaps.init({ loadMaps: true }))
-        .pipe(terser({
-            mangle: false
-        }))
-        .pipe(sourcemaps.write('.'))
-        .pipe(gulp.dest('dist'));
+function compileBuildDebug() {
+    return compileBuild({ sourcemap: true });
 }
 
-export const buildJs = gulp.series(generateGameVersion, compileBuild, minifyBuild);
+function compileBuildProd() {
+    return compileBuild({ sourcemap: false });
+}
+
+function minifyBuild(opts = {}) {
+    let stream = gulp.src('temp/app.js', { encoding: false });
+    if (opts.sourcemap) {
+        stream = stream.pipe(sourcemaps.init({ loadMaps: true }));
+    }
+    stream = stream.pipe(terser({
+        mangle: false
+    }));
+    if (opts.sourcemap) {
+        stream = stream.pipe(sourcemaps.write('.'));
+    }
+    return stream.pipe(gulp.dest('dist'));
+}
+
+function minifyBuildDebug() {
+    return minifyBuild({ sourcemap: true });
+}
+
+function minifyBuildProd() {
+    return minifyBuild({ sourcemap: false });
+}
+
+export const buildJs = gulp.series(generateGameVersion, compileBuildProd, minifyBuildProd);
+export const buildJsDebug = gulp.series(generateGameVersion, compileBuildDebug, minifyBuildDebug);
 
 // -----------------------------------------------------------------------------
 // Server Build
@@ -94,7 +115,8 @@ export async function compileServerBuild() {
                         { find: './Viewport', replacement: path.resolve(__dirname, 'src/js/shims/ServerViewport.js') },
                         { find: './Text', replacement: path.resolve(__dirname, 'src/js/shims/ServerText.js') },
                         { find: './Audio', replacement: path.resolve(__dirname, 'src/js/shims/ServerAudio.js') },
-                        { find: './Sprite', replacement: path.resolve(__dirname, 'src/js/shims/ServerSprite.js') }
+                        { find: './Sprite', replacement: path.resolve(__dirname, 'src/js/shims/ServerSprite.js') },
+                        { find: './logger.js', replacement: path.resolve(__dirname, 'src/js/shims/ServerLogger.js') }
                     ]
                 }),
                 rollupJson()
@@ -122,7 +144,7 @@ export const buildServer = gulp.series(generateGameVersion, compileServerBuild);
 // CSS Build
 // -----------------------------------------------------------------------------
 export function buildCss() {
-    return gulp.src('src/app.css')
+    return gulp.src('src/app.css', { encoding: false })
         .pipe(cleancss())
         .pipe(gulp.dest('dist'));
 }
@@ -154,7 +176,7 @@ export async function generateSpriteSheetData() {
 }
 
 export function copyAssets() {
-    return gulp.src('src/assets/spritesheet-gen.png')
+    return gulp.src('src/assets/spritesheet-gen.png', { encoding: false })
         .pipe(rename('sprites.png'))
         .pipe(gulp.dest('dist'));
 }
@@ -169,7 +191,7 @@ export const buildAssets = gulp.series(
 // HTML Build
 // -----------------------------------------------------------------------------
 export function buildHtml() {
-    return gulp.src('src/index.html')
+    return gulp.src('src/index.html', { encoding: false })
         .pipe(htmlmin({ collapseWhitespace: true }))
         .pipe(gulp.dest('dist'));
 }
@@ -181,7 +203,8 @@ export const build = gulp.series(
     buildAssets,
     buildJs,
     buildCss,
-    buildHtml
+    buildHtml,
+    buildServer
 );
 
 // -----------------------------------------------------------------------------

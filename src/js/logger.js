@@ -1,7 +1,11 @@
-import pino from 'pino';
-
-const logger = pino({
-  timestamp: pino.stdTimeFunctions.isoTime
-});
+/**
+ * Browser-compatible logger
+ */
+const logger = {
+    info: (...args) => console.log(...args),
+    error: (...args) => console.error(...args),
+    warn: (...args) => console.warn(...args),
+    debug: (...args) => console.debug(...args),
+};
 
 export default logger;
