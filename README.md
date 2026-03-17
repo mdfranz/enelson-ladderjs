@@ -46,6 +46,27 @@ npm run build:server    # Build the server bundle
 npm start               # Start on port 3000
 ```
 
+Example output:
+```text
+mdfranz@acer-cr516g:~/github/enelson-ladderjs$ npm start
+
+> ladderjs@0.4.0 start
+> node dist/server.js
+
+Server running at http://localhost:3000
+  - WebSocket:     ws://localhost:3000
+  - Browser:       http://localhost:3000
+  - Original game: http://localhost:3000/game
+  - REST API:      http://localhost:3000/api/state
+```
+
+The server provides several ways to interact with the game:
+
+- **Browser Viewer (`/`)**: A web-based "monitor" that connects to the server via WebSocket. It displays the current state of the game running on the server and allows you to play using your keyboard.
+- **Original Game (`/game`)**: The standalone, client-side version of the game. This runs entirely in your browser and does not synchronize with the server's state.
+- **WebSocket (`ws://...`)**: A real-time stream of game data. The server broadcasts the full 80x24 screen buffer and session state (score, lives, etc.) to all connected clients at 60 frames per second. You can also send input commands back to the server.
+- **REST API (`/api/state`)**: A standard HTTP interface for polling the current game state or sending one-off input commands. This is ideal for building bots or external dashboards.
+
 ### Browser Viewer
 
 Open `http://localhost:3000` in your browser to watch and play the game with keyboard controls.
