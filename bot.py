@@ -35,6 +35,7 @@ class BotConfig:
 
     # Tile characters
     LADDER = 'H'
+    CLIMBABLE_CHARS = {'H', '&', '$'}
     SOLID_CHARS = {'=', '|', '-'}
     EMPTY_CHARS = {' ', 'R', 'G'}
 
@@ -76,7 +77,7 @@ class GameState:
                     self.rocks.append({"x": x, "y": y})
                 elif char in BotConfig.GHOST_CHARS:
                     self.ghosts.append({"x": x, "y": y})
-                elif char == BotConfig.LADDER:
+                elif char in BotConfig.CLIMBABLE_CHARS:
                     self.ladders.append({"x": x, "y": y})
                 elif char == 'R':
                     self.dispensers.append({"x": x, "y": y, "type": "rock"})
@@ -122,11 +123,11 @@ class GameState:
         return {ladder["x"] for ladder in self.ladders}
 
     def is_on_ladder(self):
-        """Player is on a ladder tile."""
+        """Player is on a ladder tile that can initiate a climb."""
         return self.char_at(self.player_x, self.player_y) == BotConfig.LADDER
 
     def ladder_above(self, x, y):
-        """Is there a ladder directly above (y-1)."""
+        """Is there a ladder tile directly above (y-1)."""
         return self.char_at(x, y - 1) == BotConfig.LADDER
 
 
@@ -366,10 +367,10 @@ def ladder_near(state, hint_col, threshold=10):
 def make_climb_action(target_x):
     """Factory for climb actions that know their target ladder column."""
     def climb_action(state):
-        # Can we climb?
+        # Can we climb? (Must start on an 'H')
         if state.is_on_ladder() or state.ladder_above(state.player_x, state.player_y):
-            # Check if there's actually something to climb INTO
-            if state.char_at(state.player_x, state.player_y - 1) in [BotConfig.LADDER, '&', '$']:
+            # Check if there's actually something to climb INTO (can climb through H, &, $)
+            if state.char_at(state.player_x, state.player_y - 1) in BotConfig.CLIMBABLE_CHARS:
                 return "UP"
             # Otherwise, we are at the top of a ladder but it doesn't continue up.
             # If there's another ladder within jump reach, jump for it!
@@ -420,90 +421,105 @@ def make_climb_action(target_x):
 
 
 def make_level1_steps():
-    """Construct 12 steps for Level 1 navigation."""
+    """Construct steps for Level 1 navigation, collecting statue and treasure."""
 
     steps = []
 
     # Step 1: Move to first ladder (x=57)
+    # Collects Key at x=10, then jumps Door at x=15
     steps.append(Navigator.Step(
         name="Go to first ladder",
         action_fn=lambda state: "JUMP" if 12 <= state.player_x <= 14 else "RIGHT",
         completion_fn=lambda state: state.player_x >= 57 and state.player_y == 18
     ))
 
-    # Step 2: Climb first ladder (x=57)
+    # Step 2: Climb first ladder (x=57) to Platform 1 (y=14)
     steps.append(Navigator.Step(
         name="Climb first ladder",
         action_fn=make_climb_action(57),
         completion_fn=lambda state: state.player_y <= 14
     ))
 
-    # Step 3: Move left across platform 1
+    # Step 3: Move left to ladder 2 (x=16)
     steps.append(Navigator.Step(
-        name="Move left across platform 1",
+        name="Move left to second ladder",
         action_fn=lambda state: "JUMP" if state.player_x in [49, 27] else "LEFT",
         completion_fn=lambda state: state.player_x <= 16
     ))
 
-    # Step 4: Climb second ladder (x=16)
+    # Step 4: Climb second ladder (x=16) to Platform 2 (y=11)
     steps.append(Navigator.Step(
         name="Climb second ladder",
         action_fn=make_climb_action(16),
-        completion_fn=lambda state: state.player_y <= 10
+        completion_fn=lambda state: state.player_y <= 11
     ))
 
-    # Step 5: Move right across platform 2
+    # Step 5: Move right to third ladder (x=27)
     steps.append(Navigator.Step(
-        name="Move right across platform 2",
+        name="Move right to third ladder",
         action_fn=lambda state: "RIGHT",
         completion_fn=lambda state: state.player_x >= 27
     ))
 
-    # Step 6: Climb third ladder (x=27)
+    # Step 6: Climb third ladder (x=27) to Platform 3 (y=7)
     steps.append(Navigator.Step(
         name="Climb third ladder",
         action_fn=make_climb_action(27),
-        completion_fn=lambda state: state.player_y <= 6
+        completion_fn=lambda state: state.player_y <= 7
     ))
 
-    # Step 7: Move left across platform 3
+    # Step 7: Move left to statue location (x=16)
     steps.append(Navigator.Step(
-        name="Move left across platform 3",
+        name="Move left to statue location",
         action_fn=lambda state: "LEFT",
         completion_fn=lambda state: state.player_x <= 16
     ))
 
-    # Step 8: Climb fourth ladder (x=16)
+    # Step 8: Get statue (&) by climbing down
     steps.append(Navigator.Step(
-        name="Climb fourth ladder",
-        action_fn=make_climb_action(16),
-        completion_fn=lambda state: state.player_y <= 2
+        name="Climb down for statue",
+        action_fn=lambda state: "DOWN",
+        completion_fn=lambda state: state.player_y >= 8
     ))
 
-    # Step 9: Move right across top platform
+    # Step 9: Climb back up to platform 3 (y=7)
+    steps.append(Navigator.Step(
+        name="Climb back up to platform",
+        action_fn=lambda state: "UP",
+        completion_fn=lambda state: state.player_y <= 7
+    ))
+
+    # Step 10: Climb fourth ladder (x=16) to top platform (y=3)
+    steps.append(Navigator.Step(
+        name="Climb to top platform",
+        action_fn=make_climb_action(16),
+        completion_fn=lambda state: state.player_y <= 3
+    ))
+
+    # Step 11: Move right across top platform to final ladder (x=57)
     steps.append(Navigator.Step(
         name="Move right across top platform",
         action_fn=lambda state: "RIGHT",
         completion_fn=lambda state: state.player_x >= 57
     ))
 
-    # Step 10: Stop at final ladder location
+    # Step 12: Stop at final ladder location
     steps.append(Navigator.Step(
         name="Stop at final ladder",
         action_fn=lambda state: "STOP",
         completion_fn=lambda state: state.player_char == 'g'
     ))
 
-    # Step 11: Jump up to grab goal
+    # Step 13: Jump up to grab goal ladder
     steps.append(Navigator.Step(
         name="Jump up to grab goal ladder",
         action_fn=lambda state: "JUMP",
         completion_fn=lambda state: state.player_char == 'g' and state.player_y < 2
     ))
 
-    # Step 12: Climb to goal (x=57)
+    # Step 14: Climb to goal and get treasure ($) at y=0
     steps.append(Navigator.Step(
-        name="Climb to goal",
+        name="Climb to goal treasure",
         action_fn=make_climb_action(57),
         completion_fn=lambda state: state.player_y <= 0
     ))
