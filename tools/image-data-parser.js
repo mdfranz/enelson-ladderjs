@@ -1,8 +1,6 @@
-'use strict';
-
-const fs = require('fs');
-const util = require('util');
-const imageToBase64 = require('image-to-base64');
+import fs from 'node:fs';
+import util from 'node:util';
+import imageToBase64 from 'image-to-base64';
 
 /**
  * The image data parser takes a JSON file, produced by Aseprite when it exported
@@ -69,4 +67,4 @@ const ImageDataParser = {
   }
 };
 
-module.exports = ImageDataParser;
+export default ImageDataParser;

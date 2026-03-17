@@ -1,16 +1,8 @@
-'use strict';
-
-var express = require('express');
-var path = require('path');
-var ws = require('ws');
-var http = require('http');
-var pino = require('pino');
-
-function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
-
-var express__default = /*#__PURE__*/_interopDefaultLegacy(express);
-var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
-var pino__default = /*#__PURE__*/_interopDefaultLegacy(pino);
+import express from 'express';
+import path from 'path';
+import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
+import pino from 'pino';
 
 /**
  * ServerSprite - Minimal stub for headless server environment
@@ -84,8 +76,8 @@ const Audio = {
     }
 };
 
-const logger = pino__default["default"]({
-  timestamp: pino__default["default"].stdTimeFunctions.isoTime
+const logger = pino({
+  timestamp: pino.stdTimeFunctions.isoTime
 });
 
 /**
@@ -106,6 +98,7 @@ const logger = pino__default["default"]({
  *    high score or pressing one of the inputs at the main menu. In this case we
  *    want to know "did the user tap P?", as opposed to mapping the keys to actions.
  */
+
 
 // A list of in-game actions that can be performed by the player
 const Action = {
@@ -212,6 +205,7 @@ const Input = {
  * let them be namespaced.
  */
 
+
 // The "screen area". This is an ASCII game and so most of the game logic doesn't care about browser
 // pixels, we care about the ASCII display area (80x25).
 //
@@ -284,6 +278,7 @@ const MAX_GHOSTS = 3;
  * Replaces Text for server-side game execution
  */
 
+
 const Text = {
     glow: null,
 
@@ -309,6 +304,7 @@ const Text = {
  * Replaces Viewport for server-side game execution
  */
 
+
 const Viewport = {
     ctx: null,
     width: GAME_WIDTH,
@@ -331,6 +327,7 @@ const Viewport = {
  * screen each frame. Once all the text is written, the text will end up rendered on
  * the viewport (canvas) in the browser.
  */
+
 
 const Screen = {
     init() {
@@ -371,6 +368,7 @@ var GameVersion = "0.4.0";
  * MainMenu are constructed whenever we want the user to go to the main menu, and
  * thrown away when we're done.
  */
+
 
 class MainMenu {
     update() {
@@ -477,6 +475,7 @@ class InstructionsMenu {
 /**
  * A collection of states and functions related to entities.
  */
+
 
 // A list of states usable by entities. Some states only apply to players (rocks can't jump).
 //
@@ -838,6 +837,7 @@ class Player {
  * and kill the player if touched.
  */
 
+
 const SPAWN_FRAMES$1 = ['v', 'v', 'v', 'v', 'v', 'v', '.', '.', '.'];
 const DEATH_FRAMES$1 = ['.', ':', '.'];
 
@@ -922,6 +922,7 @@ class Rock {
 /**
  * `Ghost` is a class representing the Chaser enemy, which slowly pursues the player.
  */
+
 
 const SPAWN_FRAMES = ['W', 'w', 'W', 'w', 'W', 'w', '.', '.', '.'];
 const DEATH_FRAMES = ['.', ':', '.'];
@@ -1197,6 +1198,7 @@ var LevelData = [
  * actively played is called a playing field.)
  */
 
+
 const Level = {
     LEVELS: LevelData,
     LEVEL_COUNT: LevelData.length,
@@ -1272,6 +1274,7 @@ const Level = {
  * Level-specific stuff (like bonus time, dispensers, rocks, player position, etc.) is all
  * managed by the playing field.
  */
+
 
 class PlayingField {
     constructor(levelNumber) {
@@ -1564,6 +1567,7 @@ class PlayingField {
  * the level number, etc.). Most of the actual in-game logic it hands off to `PlayingField`.
  */
 
+
 class GameSession {
     constructor() {
         this.score = 0;
@@ -1724,6 +1728,7 @@ class GameSession {
  * initializes game submodules, and handles the top-level game loop.
  */
 
+
 const Game = {
     init() {
         Sprite.loadSpritesheet(async () => {
@@ -1811,9 +1816,9 @@ const Game = {
         // (Technically scan lines should be IN BETWEEN rows of pixels, and what we're actually simulating
         // here is our eyeballs clocking the screen refresh. We're going for a general feeling here.)
         Viewport.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        for (let y = Math.floor(-Viewport.height / 2) - 4; y < Viewport.height + 4; y += 4) {
+        for (let y = Math.floor(-1600 / 2) - 4; y < Viewport.height + 4; y += 4) {
             let r = ((this.frame / 5) % 4) + y;
-            Viewport.ctx.fillRect(-Viewport.width, r, Viewport.width * 2, 2);
+            Viewport.ctx.fillRect(-2592, r, Viewport.width * 2, 2);
         }
     },
 
@@ -1855,6 +1860,7 @@ const Game = {
  * This module monkey-patches the Game singleton to run headlessly in Node.js
  * and exposes methods to control the game and get its state for remote clients.
  */
+
 
 class ServerGame {
     constructor() {
@@ -2011,17 +2017,18 @@ class ServerGame {
  * Provides REST API and WebSocket interface for remote game control and state observation.
  */
 
+
 // Get the directory of the current file (dist directory when bundled)
-path__default["default"].resolve(process.cwd(), 'dist');
+path.resolve(process.cwd(), 'dist');
 
 async function startServer(port = 3000) {
-    const app = express__default["default"]();
-    const server = http.createServer(app);
-    const wss = new ws.WebSocketServer({ server });
+    const app = express();
+    const server = createServer(app);
+    const wss = new WebSocketServer({ server });
 
     // Middleware
-    app.use(express__default["default"].json());
-    app.use(express__default["default"].static(path__default["default"].resolve(process.cwd()), { index: false }));
+    app.use(express.json());
+    app.use(express.static(path.resolve(process.cwd()), { index: false }));
 
     // Initialize game
     const game = new ServerGame();
@@ -2101,15 +2108,15 @@ async function startServer(port = 3000) {
 
     // Static files: browser viewer and original game
     app.get('/', (req, res) => {
-        res.sendFile(path__default["default"].resolve(process.cwd(), 'client.html'));
+        res.sendFile(path.resolve(process.cwd(), 'client.html'));
     });
 
     app.get('/game', (req, res) => {
-        res.sendFile(path__default["default"].resolve(process.cwd(), 'dist', 'index.html'));
+        res.sendFile(path.resolve(process.cwd(), 'dist', 'index.html'));
     });
 
     // Fallback - serve from dist
-    app.use(express__default["default"].static(path__default["default"].resolve(process.cwd(), 'dist')));
+    app.use(express.static(path.resolve(process.cwd(), 'dist')));
 
     return new Promise((resolve) => {
         server.listen(port, () => {
@@ -2128,6 +2135,7 @@ async function startServer(port = 3000) {
  *
  * Starts the HTTP/WebSocket server that hosts a playable game instance.
  */
+
 
 const port = process.env.PORT || 3000;
 startServer(port).catch(err => {

@@ -1,36 +1,37 @@
 // -----------------------------------------------------------------------------
 // Imports
 // -----------------------------------------------------------------------------
-const advpng            = require('imagemin-advpng');
-const chalk             = require('chalk');
-const childProcess      = require('child_process');
-const fs                = require('fs');
-const gulp              = require('gulp');
-const log               = require('fancy-log');
-const rollup            = require('rollup');
-const rollupJson        = require('@rollup/plugin-json');
-const rollupAlias       = require('@rollup/plugin-alias');
-const path              = require('path');
+import advpng            from 'imagemin-advpng';
+import chalk             from 'chalk';
+import fs                from 'node:fs';
+import gulp              from 'gulp';
+import log               from 'fancy-log';
+import * as rollup       from 'rollup';
+import rollupJson        from '@rollup/plugin-json';
+import rollupAlias       from '@rollup/plugin-alias';
+import path              from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
-const AsepriteCli       = require('./tools/aseprite-cli');
-const ImageDataParser   = require('./tools/image-data-parser');
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+import AsepriteCli       from './tools/aseprite-cli.js';
+import ImageDataParser   from './tools/image-data-parser.js';
 
 // -----------------------------------------------------------------------------
 // Gulp Plugins
 // -----------------------------------------------------------------------------
-const concat            = require('gulp-concat');
-const cleancss          = require('gulp-clean-css');
-const htmlmin           = require('gulp-htmlmin');
-const imagemin          = require('gulp-imagemin');
-const rename            = require('gulp-rename');
-const size              = require('gulp-size');
-const sourcemaps        = require('gulp-sourcemaps');
-const template          = require('gulp-template');
-const terser            = require('gulp-terser');
-
-// -----------------------------------------------------------------------------
-// Flags
-// -----------------------------------------------------------------------------
+import concat            from 'gulp-concat';
+import cleancss          from 'gulp-clean-css';
+import htmlmin           from 'gulp-htmlmin';
+import imagemin          from 'gulp-imagemin';
+import rename            from 'gulp-rename';
+import size              from 'gulp-size';
+import sourcemaps        from 'gulp-sourcemaps';
+import template          from 'gulp-template';
+import terser            from 'gulp-terser';
 
 // -----------------------------------------------------------------------------
 // JS Build
@@ -47,10 +48,9 @@ async function compileBuild() {
     try {
         const bundle = await rollup.rollup({
             input: 'src/js/index.js',
-            plugins: rollupJson(),
+            plugins: [rollupJson()],
             onwarn: (warning, rollupWarn) => {
                 // Suppress circular dependency warnings
-                // (I use circular dependencies with wild abandon)
                 if (warning.code !== 'CIRCULAR_DEPENDENCY') {
                     rollupWarn(warning);
                 }
@@ -64,11 +64,7 @@ async function compileBuild() {
             sourcemap: 'inline'
         });
     } catch (error) {
-        // Use rollup's error output
-        // This hack is for development - I'm using rollup's API here, but I want
-        // the output format of the CLI if I have a compile/syntax error. The line
-        // below invokes the CLI's error handling so I can see the detailed context.
-        require('rollup/dist/shared/loadConfigFile').handleError(error, true);
+        console.error(error);
         throw error;
     }
 }
@@ -77,21 +73,18 @@ function minifyBuild() {
     return gulp.src('temp/app.js')
         .pipe(sourcemaps.init({ loadMaps: true }))
         .pipe(terser({
-            // I'm using terser to shrink the JS source size down, every little bit helps
-            // for loading speed in the browser -- but we don't need it to be mangled
-            // or intentionally obfuscated.
             mangle: false
         }))
         .pipe(sourcemaps.write('.'))
         .pipe(gulp.dest('dist'));
 }
 
-const buildJs = gulp.series(generateGameVersion, compileBuild, minifyBuild);
+export const buildJs = gulp.series(generateGameVersion, compileBuild, minifyBuild);
 
 // -----------------------------------------------------------------------------
 // Server Build
 // -----------------------------------------------------------------------------
-async function compileServerBuild() {
+export async function compileServerBuild() {
     try {
         const bundle = await rollup.rollup({
             input: 'src/js/server.js',
@@ -116,20 +109,20 @@ async function compileServerBuild() {
 
         await bundle.write({
             file: 'dist/server.js',
-            format: 'cjs'
+            format: 'esm'
         });
     } catch (error) {
-        require('rollup/dist/shared/loadConfigFile').handleError(error, true);
+        console.error(error);
         throw error;
     }
 }
 
-const buildServer = gulp.series(generateGameVersion, compileServerBuild);
+export const buildServer = gulp.series(generateGameVersion, compileServerBuild);
 
 // -----------------------------------------------------------------------------
 // CSS Build
 // -----------------------------------------------------------------------------
-function buildCss() {
+export function buildCss() {
     return gulp.src('src/app.css')
         .pipe(cleancss())
         .pipe(gulp.dest('dist'));
@@ -139,11 +132,7 @@ function buildCss() {
 // Assets Build
 // -----------------------------------------------------------------------------
 
-async function exportSpriteSheet() {
-    // Exporting the sprite sheet is the first step - using Aseprite, we take as input
-    // all of our source aseprite files, and spit out a single spritesheet PNG and a JSON
-    // file containing the x/y/w/h coordinates of the sprites in the spritesheet.
-
+export async function exportSpriteSheet() {
     let src = 'src/assets/*.aseprite';
     let png = 'src/assets/spritesheet-gen.png';
     let data = 'src/assets/spritesheet-gen.json';
@@ -157,11 +146,7 @@ async function exportSpriteSheet() {
     }
 }
 
-async function generateSpriteSheetData() {
-    // After exporting the sprite sheet, we use the JSON data to update a source file used by
-    // our asset loader in the game. This way we can freely update images without ever
-    // hand-edting any coordinate data or worrying about the composition of the spritesheet.
-
+export async function generateSpriteSheetData() {
     let data = 'src/assets/spritesheet-gen.json';
     let image = 'sprites.png';
     let output = 'src/js/SpriteSheet-gen.js';
@@ -169,13 +154,13 @@ async function generateSpriteSheetData() {
     await ImageDataParser.parse(data, image, false, output);
 }
 
-function copyAssets() {
+export function copyAssets() {
     return gulp.src('src/assets/spritesheet-gen.png')
         .pipe(rename('sprites.png'))
         .pipe(gulp.dest('dist'));
 }
 
-const buildAssets = gulp.series(
+export const buildAssets = gulp.series(
     exportSpriteSheet,
     copyAssets,
     generateSpriteSheetData,
@@ -184,7 +169,7 @@ const buildAssets = gulp.series(
 // -----------------------------------------------------------------------------
 // HTML Build
 // -----------------------------------------------------------------------------
-function buildHtml() {
+export function buildHtml() {
     return gulp.src('src/index.html')
         .pipe(htmlmin({ collapseWhitespace: true }))
         .pipe(gulp.dest('dist'));
@@ -193,7 +178,7 @@ function buildHtml() {
 // -----------------------------------------------------------------------------
 // Build
 // -----------------------------------------------------------------------------
-const build = gulp.series(
+export const build = gulp.series(
     buildAssets,
     buildJs,
     buildCss,
@@ -203,33 +188,11 @@ const build = gulp.series(
 // -----------------------------------------------------------------------------
 // Watch
 // -----------------------------------------------------------------------------
-function watch() {
-    watching = true;
-
-    // The watch task watches for any file changes in the src/ folder, _except_ for
-    // edits to generated files (called blah-gen by convention).
+export function watch() {
     gulp.watch(['src/**', '!src/**/*-gen*'], build);
 }
 
 // -----------------------------------------------------------------------------
 // Task List
 // -----------------------------------------------------------------------------
-module.exports = {
-    // Potentially useful subtasks
-    compileBuild,
-    minifyBuild,
-    compileServerBuild,
-
-    // Core build steps
-    buildJs,
-    buildCss,
-    buildAssets,
-    buildHtml,
-    buildServer,
-
-    // Primary entry points
-    build,
-    watch,
-
-    default: gulp.series(build, watch)
-};
+export default gulp.series(build, watch);
