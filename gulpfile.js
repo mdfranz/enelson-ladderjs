@@ -28,7 +28,6 @@ import cleancss          from 'gulp-clean-css';
 import htmlmin           from 'gulp-htmlmin';
 import imagemin          from 'gulp-imagemin';
 import rename            from 'gulp-rename';
-import size              from 'gulp-size';
 import sourcemaps        from 'gulp-sourcemaps';
 import template          from 'gulp-template';
 import terser            from 'gulp-terser';
