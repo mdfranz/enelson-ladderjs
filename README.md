@@ -122,9 +122,9 @@ The standalone browser game is available at `http://localhost:3000/game` or by o
 ## Development
 
 Build commands:
-- `npx gulp build` — Browser game bundle
-- `npm run build:server` — Headless server bundle
-- `npx gulp watch` — Watch mode for browser bundle
+- `npm run build` — Full build (assets, browser bundle, server bundle)
+- `npm run build:server` — Headless server bundle only
+- `npm run watch` — Watch mode for browser bundle
 
 ## Core Mechanics
 
@@ -148,7 +148,7 @@ The project follows a modular, decoupled design aimed at being easy to read and 
 - **Level Logic**: `PlayingField.js` handles all real-time interactions, collisions, and entity updates for a specific level.
 - **ASCII Rendering**: `Screen.js` maintains a virtual 80x24 character buffer, which `Viewport.js` then renders to the HTML5 Canvas with retro-style scaling and scanline effects.
 - **Entity System**: Entities like `Player`, `Rock`, and `Ghost` are encapsulated in their own classes, making it simple to add new behaviors.
-- **Tooling**: A Gulp-based pipeline handles asset generation, JavaScript bundling via Rollup, and minification.
+- **Tooling**: A custom Node.js build script (`build.js`) handles asset generation, JavaScript bundling via Rollup, and minification.
 
 ## Changelog
 

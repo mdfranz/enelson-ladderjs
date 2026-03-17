@@ -8,7 +8,7 @@
  * let them be namespaced.
  */
 
-// Spritesheet URI (produced during gulp build)
+// Spritesheet URI (produced during build)
 export const SPRITESHEET_URI = 'sprites.png';
 
 // The "screen area". This is an ASCII game and so most of the game logic doesn't care about browser

@@ -18,7 +18,7 @@ import imageToBase64 from 'image-to-base64';
  *  - If you've updated images, the build is no longer pure (i.e., it has the side effect
  *    of modifying files in the /src folder that need to be checked in).
  *
- *  - Need to be careful with your "gulp watch" filespec to avoid rebuild loops.
+ *  - Need to be careful with your "npm run watch" filespec to avoid rebuild loops.
  */
 const ImageDataParser = {
   async parse(dataFile, imageFileName, isBase64, outputFile) {

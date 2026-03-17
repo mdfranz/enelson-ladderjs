@@ -5,9 +5,9 @@
 # Default target
 all: build
 
-# Build the project using Gulp
+# Build the project using the Node.js build script
 build: node_modules
-	npx gulp build
+	npm run build
 
 # Run the project using a local server with npx
 run: build

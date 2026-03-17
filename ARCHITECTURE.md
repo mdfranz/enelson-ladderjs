@@ -60,7 +60,7 @@ The project uses a "Shim" pattern to support both Browser and Node.js environmen
 | **Input** | Keyboard/Touch Events (`Input.js`) | WebSocket/REST Injection |
 | **Sprites** | Image loading (`Sprite.js`) | Metadata only (`ServerSprite.js`) |
 
-The `gulpfile.js` uses Rollup aliases to swap these modules during the server build process.
+The `build.js` script uses Rollup aliases to swap these modules during the server build process.
 
 ## Data Flow Diagram
 
@@ -93,7 +93,7 @@ graph TD
 
 ## Build & Asset Pipeline
 
--   **Gulp & Rollup**: Used for bundling. Rollup handles the module aliasing for the server build.
+-   **Node.js & Rollup**: Used for bundling. Rollup handles the module aliasing for the server build.
 -   **Aseprite CLI**: Automated tool that takes `.aseprite` source files, packs them into a single `sprites.png`, and generates a `SpriteSheet-gen.js` with UV coordinates.
 -   **ZzFX**: A tiny sound effect generator used to produce authentic 8-bit sounds without large audio files.
 
