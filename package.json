@@ -6,27 +6,20 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build:server": "gulp buildServer",
+    "build": "node build.js",
+    "build:server": "node build.js server",
+    "watch": "node build.js watch",
     "start": "node dist/server.js"
   },
   "author": "Elliot Nelson",
   "devDependencies": {
     "@rollup/plugin-alias": "^6.0.0",
     "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-terser": "^1.0.0",
     "ase-parser": "^0.0.18",
-    "chalk": "^5.6.2",
-    "fancy-log": "^2.0.0",
-    "gulp": "^5.0.1",
-    "gulp-clean-css": "^4.3.0",
-    "gulp-concat": "^2.6.1",
-    "gulp-htmlmin": "^5.0.1",
-    "gulp-imagemin": "^9.2.0",
-    "gulp-rename": "^2.1.0",
-    "gulp-sourcemaps": "^3.0.0",
-    "gulp-template": "^6.1.0",
-    "gulp-terser": "^2.1.0",
+    "clean-css": "^5.3.3",
+    "html-minifier-terser": "^7.2.0",
     "image-to-base64": "^2.2.0",
-    "imagemin-advpng": "^6.0.0",
     "rollup": "^4.59.0"
   },
   "dependencies": {
