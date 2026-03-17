@@ -348,18 +348,26 @@ def make_climb_action(target_x):
         if state.is_on_ladder() or state.ladder_above(state.player_x, state.player_y):
             return "UP"
 
-        # Not on ladder yet. Check if there's a ladder adjacent that we should move to
-        for dx in [-1, 0, 1]:
+        # Look for a ladder within ±3 columns of target
+        closest_ladder = None
+        closest_dist = float('inf')
+        for dx in range(-3, 4):
             check_x = state.player_x + dx
             if state.char_at(check_x, state.player_y) == BotConfig.LADDER:
-                # Found a ladder nearby, move toward it
-                if dx < 0:
-                    return "LEFT"
-                elif dx > 0:
-                    return "RIGHT"
-                else:
-                    # We're on it but is_on_ladder() returned False? Try to re-center
-                    return "STOP"
+                dist = abs(dx)
+                if dist < closest_dist:
+                    closest_dist = dist
+                    closest_ladder = check_x
+
+        if closest_ladder is not None:
+            # Found a ladder within 3 columns, move toward it
+            if closest_ladder < state.player_x:
+                return "LEFT"
+            elif closest_ladder > state.player_x:
+                return "RIGHT"
+            else:
+                # Shouldn't reach here since we checked is_on_ladder() above
+                return "STOP"
 
         # No ladder nearby. Move toward target x-coordinate
         if state.player_x < target_x:
@@ -378,19 +386,9 @@ def make_level1_steps():
     steps = []
 
     # Step 1: Move to first ladder (x=57)
-    def step1_action(state):
-        # If just respawned on a ladder, jump off
-        if state.is_on_ladder() and state.player_x <= 6:
-            return "JUMP"
-        # Jump at platform gap
-        if 12 <= state.player_x <= 14:
-            return "JUMP"
-        # Otherwise move right
-        return "RIGHT"
-
     steps.append(Navigator.Step(
         name="Go to first ladder",
-        action_fn=step1_action,
+        action_fn=lambda state: "JUMP" if 12 <= state.player_x <= 14 else "RIGHT",
         completion_fn=lambda state: state.player_x >= 57 and state.player_y == 18
     ))
 
