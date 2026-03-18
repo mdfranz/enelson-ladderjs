@@ -112,6 +112,14 @@ export class ServerGame {
         return { x: -1, y: -1 };
     }
 
+    _getHazards() {
+        if (!Game.session || !Game.session.field) return { rocks: [], ghosts: [] };
+        return {
+            rocks: Game.session.field.rocks.map(r => ({ x: r.x, y: r.y })),
+            ghosts: Game.session.field.ghosts.map(g => ({ x: g.x, y: g.y }))
+        };
+    }
+
     injectAction(actionName) {
         // Map action name to Input.Action code
         if (!(actionName in Input.Action)) {
@@ -119,11 +127,13 @@ export class ServerGame {
         }
 
         const pos = this._findPlayer();
+        const hazards = this._getHazards();
         logger.info({ 
             action: actionName, 
             px: pos.x, 
             py: pos.y, 
-            level: Game.session ? Game.session.levelNumber : -1 
+            hazards,
+            levelNumber: Game.session ? Game.session.levelNumber : -1 
         }, 'Injecting action');
         const actionCode = Input.Action[actionName];
         Input.buffer.push({
@@ -136,12 +146,14 @@ export class ServerGame {
 
     injectKey(key, code) {
         const pos = this._findPlayer();
+        const hazards = this._getHazards();
         logger.info({ 
             key, 
             code: code || key, 
             px: pos.x, 
             py: pos.y,
-            level: Game.session ? Game.session.levelNumber : -1
+            hazards,
+            levelNumber: Game.session ? Game.session.levelNumber : -1
         }, 'Injecting key');
         Input.buffer.push({
             at: new Date().getTime(),

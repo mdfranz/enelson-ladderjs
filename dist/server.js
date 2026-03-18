@@ -76,9 +76,13 @@ const Audio = {
     }
 };
 
+const dest = process.env.LOG_FILE 
+  ? pino.destination({ dest: process.env.LOG_FILE, sync: true }) 
+  : pino.destination(1); // 1 is stdout
+
 const logger = pino({
   timestamp: pino.stdTimeFunctions.isoTime
-});
+}, dest);
 
 /**
  * `Input` is a singleton that helps us map keyboard events in the browser
@@ -665,7 +669,8 @@ function applyEntityMovement(entity, field) {
         case State.JUMP_LEFT:
         case State.JUMP_UP:
             let step = JUMP_FRAMES[entity.state][entity.jumpStep];
-            if ((entity.x + step.x >= 0) && (entity.x + step.x < LEVEL_COLS)) {
+            if ((entity.x + step.x >= 0) && (entity.x + step.x < LEVEL_COLS) &&
+                (entity.y + step.y >= 0) && (entity.y + step.y < LEVEL_ROWS)) {
                 let terrain = field.layout[entity.y + step.y][entity.x + step.x];
                 if (['=', '|', '-'].includes(terrain)) {
                     if (field.onSolid(entity.x, entity.y)) {
@@ -1339,12 +1344,14 @@ class PlayingField {
         if (moveFrame) {
             // Collect statues
             if (this.isStatue(this.player.x, this.player.y)) {
+                logger.info({ x: this.player.x, y: this.player.y, levelNumber: Game.session.levelNumber }, 'Collected statue');
                 this.layout[this.player.y][this.player.x] = ' ';
                 Game.session.updateScore(SCORE_STATUE);
             }
 
             // Collect keys
             if (this.isKey(this.player.x, this.player.y)) {
+                logger.info({ x: this.player.x, y: this.player.y, levelNumber: Game.session.levelNumber }, 'Collected key');
                 this.layout[this.player.y][this.player.x] = ' ';
                 Game.session.updateScore(SCORE_KEY);
                 // Open all doors
@@ -1359,6 +1366,7 @@ class PlayingField {
 
             // Collect treasure (ends the current level)
             if (this.isTreasure(this.player.x, this.player.y)) {
+                logger.info({ x: this.player.x, y: this.player.y, levelNumber: Game.session.levelNumber }, 'Collected treasure');
                 this.winning = true;
                 return;
             }
@@ -1499,11 +1507,13 @@ class PlayingField {
 
         // Landing on fire kills you
         if (this.isFire(this.player.x, this.player.y)) {
+            logger.info({ x: this.player.x, y: this.player.y, levelNumber: Game.session.levelNumber }, 'Died from fire');
             this.player.kill();
         }
 
         // Running out of time kills you
         if (this.time <= 0) {
+            logger.info({ x: this.player.x, y: this.player.y, levelNumber: Game.session.levelNumber }, 'Died from timeout');
             this.player.kill();
         }
 
@@ -1531,6 +1541,13 @@ class PlayingField {
         for (let i = 0; i < this.rocks.length; i++) {
             if (this.player.x === this.rocks[i].x) {
                 if (this.player.y === this.rocks[i].y) {
+                    logger.info({ 
+                        px: this.player.x, 
+                        py: this.player.y, 
+                        rx: this.rocks[i].x, 
+                        ry: this.rocks[i].y, 
+                        levelNumber: Game.session.levelNumber 
+                    }, 'Died from rock collision');
                     this.player.kill();
                     this.rocks.splice(i, 1);
                     break;
@@ -1544,6 +1561,13 @@ class PlayingField {
 
         for (let i = 0; i < this.ghosts.length; i++) {
             if (this.player.x === this.ghosts[i].x && this.player.y === this.ghosts[i].y) {
+                logger.info({ 
+                    px: this.player.x, 
+                    py: this.player.y, 
+                    gx: this.ghosts[i].x, 
+                    gy: this.ghosts[i].y, 
+                    levelNumber: Game.session.levelNumber 
+                }, 'Died from ghost collision');
                 this.player.kill();
                 this.ghosts.splice(i, 1);
                 break;
@@ -1609,7 +1633,14 @@ class GameSession {
         if (this.paused) return;
 
         // If we haven't instantiated the playing field yet, create it now.
-        if (!this.field) this.field = new PlayingField(this.levelNumber);
+        if (!this.field) {
+            this.field = new PlayingField(this.levelNumber);
+            logger.info({ 
+                levelNumber: this.levelNumber, 
+                lives: this.lives, 
+                score: this.score 
+            }, 'Level started');
+        }
 
         // Hand off to the playing field for actual in-game logic
         this.field.update(moveFrame);
@@ -1634,10 +1665,12 @@ class GameSession {
     }
 
     restartLevel() {
+        logger.info({ levelNumber: this.levelNumber, score: this.score, lives: this.lives }, 'Restarting level');
         this.field = undefined;
     }
 
     startNextLevel() {
+        logger.info({ levelNumber: this.levelNumber, score: this.score }, 'Level completed');
         this.field = undefined;
         this.levelNumber++;
         if (this.levelNumber % Level.LEVEL_COUNT === 0) {
@@ -1646,21 +1679,34 @@ class GameSession {
     }
 
     updateScore(scoreType) {
+        let amount = 0;
+        let source = 'unknown';
         switch (scoreType) {
             case SCORE_ROCK:
-                this.score += 200;
+                amount = 200;
+                source = 'rock';
                 break;
             case SCORE_STATUE:
-                this.score += this.field.time;
+                amount = this.field.time;
+                source = 'statue';
                 break;
             case SCORE_TREASURE:
                 // Added repeatedly after winning the level
-                this.score += 10;
+                amount = 10;
+                source = 'bonus';
                 break;
         }
+        this.score += amount;
+        logger.info({ 
+            amount, 
+            source, 
+            total: this.score, 
+            levelNumber: this.levelNumber 
+        }, 'Score updated');
 
         if (this.score >= this.nextLife) {
             this.lives++;
+            logger.info({ totalLives: this.lives }, 'Extra life awarded');
             this.nextLife += NEW_LIFE_SCORE;
         }
     }
@@ -1960,6 +2006,14 @@ class ServerGame {
         return { x: -1, y: -1 };
     }
 
+    _getHazards() {
+        if (!Game.session || !Game.session.field) return { rocks: [], ghosts: [] };
+        return {
+            rocks: Game.session.field.rocks.map(r => ({ x: r.x, y: r.y })),
+            ghosts: Game.session.field.ghosts.map(g => ({ x: g.x, y: g.y }))
+        };
+    }
+
     injectAction(actionName) {
         // Map action name to Input.Action code
         if (!(actionName in Input.Action)) {
@@ -1967,11 +2021,13 @@ class ServerGame {
         }
 
         const pos = this._findPlayer();
+        const hazards = this._getHazards();
         logger.info({ 
             action: actionName, 
             px: pos.x, 
             py: pos.y, 
-            level: Game.session ? Game.session.levelNumber : -1 
+            hazards,
+            levelNumber: Game.session ? Game.session.levelNumber : -1 
         }, 'Injecting action');
         const actionCode = Input.Action[actionName];
         Input.buffer.push({
@@ -1984,12 +2040,14 @@ class ServerGame {
 
     injectKey(key, code) {
         const pos = this._findPlayer();
+        const hazards = this._getHazards();
         logger.info({ 
             key, 
             code: code || key, 
             px: pos.x, 
             py: pos.y,
-            level: Game.session ? Game.session.levelNumber : -1
+            hazards,
+            levelNumber: Game.session ? Game.session.levelNumber : -1
         }, 'Injecting key');
         Input.buffer.push({
             at: new Date().getTime(),

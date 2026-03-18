@@ -15,6 +15,7 @@ import { State } from './Entity';
 import { Screen } from './Screen';
 import { Level } from './Level';
 import { Audio } from './Audio';
+import logger from './logger.js';
 
 export class PlayingField {
     constructor(levelNumber) {
@@ -81,12 +82,14 @@ export class PlayingField {
         if (moveFrame) {
             // Collect statues
             if (this.isStatue(this.player.x, this.player.y)) {
+                logger.info({ x: this.player.x, y: this.player.y, levelNumber: Game.session.levelNumber }, 'Collected statue');
                 this.layout[this.player.y][this.player.x] = ' ';
                 Game.session.updateScore(SCORE_STATUE);
             }
 
             // Collect keys
             if (this.isKey(this.player.x, this.player.y)) {
+                logger.info({ x: this.player.x, y: this.player.y, levelNumber: Game.session.levelNumber }, 'Collected key');
                 this.layout[this.player.y][this.player.x] = ' ';
                 Game.session.updateScore(SCORE_KEY);
                 Audio.play(Audio.score);
@@ -102,6 +105,7 @@ export class PlayingField {
 
             // Collect treasure (ends the current level)
             if (this.isTreasure(this.player.x, this.player.y)) {
+                logger.info({ x: this.player.x, y: this.player.y, levelNumber: Game.session.levelNumber }, 'Collected treasure');
                 this.winning = true;
                 return;
             }
@@ -242,11 +246,13 @@ export class PlayingField {
 
         // Landing on fire kills you
         if (this.isFire(this.player.x, this.player.y)) {
+            logger.info({ x: this.player.x, y: this.player.y, levelNumber: Game.session.levelNumber }, 'Died from fire');
             this.player.kill();
         }
 
         // Running out of time kills you
         if (this.time <= 0) {
+            logger.info({ x: this.player.x, y: this.player.y, levelNumber: Game.session.levelNumber }, 'Died from timeout');
             this.player.kill();
         }
 
@@ -274,6 +280,13 @@ export class PlayingField {
         for (let i = 0; i < this.rocks.length; i++) {
             if (this.player.x === this.rocks[i].x) {
                 if (this.player.y === this.rocks[i].y) {
+                    logger.info({ 
+                        px: this.player.x, 
+                        py: this.player.y, 
+                        rx: this.rocks[i].x, 
+                        ry: this.rocks[i].y, 
+                        levelNumber: Game.session.levelNumber 
+                    }, 'Died from rock collision');
                     this.player.kill();
                     this.rocks.splice(i, 1);
                     break;
@@ -287,6 +300,13 @@ export class PlayingField {
 
         for (let i = 0; i < this.ghosts.length; i++) {
             if (this.player.x === this.ghosts[i].x && this.player.y === this.ghosts[i].y) {
+                logger.info({ 
+                    px: this.player.x, 
+                    py: this.player.y, 
+                    gx: this.ghosts[i].x, 
+                    gy: this.ghosts[i].y, 
+                    levelNumber: Game.session.levelNumber 
+                }, 'Died from ghost collision');
                 this.player.kill();
                 this.ghosts.splice(i, 1);
                 break;

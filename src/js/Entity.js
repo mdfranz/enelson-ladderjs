@@ -2,7 +2,7 @@
  * A collection of states and functions related to entities.
  */
 
-import { LEVEL_COLS } from './Constants';
+import { LEVEL_COLS, LEVEL_ROWS } from './Constants';
 import { Audio } from './Audio';
 
 // A list of states usable by entities. Some states only apply to players (rocks can't jump).
@@ -201,7 +201,8 @@ export function applyEntityMovement(entity, field) {
         case State.JUMP_LEFT:
         case State.JUMP_UP:
             let step = JUMP_FRAMES[entity.state][entity.jumpStep];
-            if ((entity.x + step.x >= 0) && (entity.x + step.x < LEVEL_COLS)) {
+            if ((entity.x + step.x >= 0) && (entity.x + step.x < LEVEL_COLS) &&
+                (entity.y + step.y >= 0) && (entity.y + step.y < LEVEL_ROWS)) {
                 let terrain = field.layout[entity.y + step.y][entity.x + step.x];
                 if (['=', '|', '-'].includes(terrain)) {
                     if (field.onSolid(entity.x, entity.y)) {

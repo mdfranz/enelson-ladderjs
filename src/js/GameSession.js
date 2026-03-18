@@ -56,7 +56,14 @@ export class GameSession {
         if (this.paused) return;
 
         // If we haven't instantiated the playing field yet, create it now.
-        if (!this.field) this.field = new PlayingField(this.levelNumber);
+        if (!this.field) {
+            this.field = new PlayingField(this.levelNumber);
+            logger.info({ 
+                levelNumber: this.levelNumber, 
+                lives: this.lives, 
+                score: this.score 
+            }, 'Level started');
+        }
 
         // Hand off to the playing field for actual in-game logic
         this.field.update(moveFrame);
@@ -81,10 +88,12 @@ export class GameSession {
     }
 
     restartLevel() {
+        logger.info({ levelNumber: this.levelNumber, score: this.score, lives: this.lives }, 'Restarting level');
         this.field = undefined;
     }
 
     startNextLevel() {
+        logger.info({ levelNumber: this.levelNumber, score: this.score }, 'Level completed');
         this.field = undefined;
         this.levelNumber++;
         if (this.levelNumber % Level.LEVEL_COUNT === 0) {
@@ -93,22 +102,35 @@ export class GameSession {
     }
 
     updateScore(scoreType) {
+        let amount = 0;
+        let source = 'unknown';
         switch (scoreType) {
             case SCORE_ROCK:
-                this.score += 200;
+                amount = 200;
+                source = 'rock';
                 break;
             case SCORE_STATUE:
-                this.score += this.field.time;
+                amount = this.field.time;
+                source = 'statue';
                 break;
             case SCORE_TREASURE:
                 // Added repeatedly after winning the level
-                this.score += 10;
+                amount = 10;
+                source = 'bonus';
                 break;
         }
+        this.score += amount;
+        logger.info({ 
+            amount, 
+            source, 
+            total: this.score, 
+            levelNumber: this.levelNumber 
+        }, 'Score updated');
         Audio.play(Audio.score);
 
         if (this.score >= this.nextLife) {
             this.lives++;
+            logger.info({ totalLives: this.lives }, 'Extra life awarded');
             this.nextLife += NEW_LIFE_SCORE;
         }
     }
