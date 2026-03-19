@@ -1,5 +1,17 @@
 # ladderjs
 
+I forked this from <a href="https://github.com/elliot-nelson/">Elliot Nelson</a> but so much of this applies I left it. I also had a Kaypro II.
+
+These are the changes I've made
+
+* Build System: Replaced gulpfile.js with a custom build.js and a Makefile, and transitioned the project toward ESM.
+* Client-Server Architecture: Added a Node.js server (src/js/server.js, HttpServer.js) and server-side game logic (ServerGame.js) with associated environment shims.
+* Automation: Introduced a Python-based bot (bot.py) and updated asset-processing tools.
+* Documentation: Added ARCHITECTURE.md and significantly expanded the README.md.
+* Refactoring: Updated core game components (GameSession, Input, PlayingField) to support the new client-server model and improved logging.
+
+## Background
+
 > The 1982 CP/M game _Ladder_, ported to JavaScript and playable in your browser.
 
 ![ladder main menu](images/ladder-main-menu.png)
@@ -24,7 +36,6 @@ One difference between the previous ports and `ladderjs` is that I wanted ladder
 
 ## Play it now
 
-You can play ladderjs in your browser at [ladderjs.7tonshark.com](https://ladderjs.7tonshark.com).
 
 Alternatively, run the headless server locally and play via WebSocket or REST API:
 
