@@ -358,6 +358,86 @@ class Navigator:
         self._respawn_handled = False
 
 
+def parse_time(ts_str):
+    ts_str = ts_str.replace('Z', '+00:00')
+    return datetime.fromisoformat(ts_str).timestamp()
+
+def extract_paths():
+    sessions = []
+    current_session = []
+    last_key = None
+    
+    try:
+        with open('training_data.json', 'r') as f:
+            for line in f:
+                if not line.strip(): continue
+                try: data = json.loads(line)
+                except: continue
+                
+                key = (data.get('pid'), data.get('hostname'))
+                is_new = last_key is not None and key != last_key
+                if not is_new and current_session:
+                    last_ts = parse_time(current_session[-1]['time'])
+                    curr_ts = parse_time(data['time'])
+                    if curr_ts - last_ts > 3600: is_new = True
+
+                if is_new:
+                    if current_session: sessions.append(current_session)
+                    current_session = []
+                
+                current_session.append(data)
+                last_key = key
+                
+        if current_session: sessions.append(current_session)
+    except FileNotFoundError:
+        logging.warning("No training_data.json found. Bot will not be able to learn paths.")
+        return {}
+    
+    level_paths = {}
+    for session in sessions:
+        levels = {}
+        for event in session:
+            l = event.get('levelNumber')
+            if l is not None and l >= 0:
+                levels.setdefault(l, []).append(event)
+                
+        for l, events in levels.items():
+            completed = any(e.get('msg') == 'Level completed' for e in events)
+            if not completed: continue
+                
+            deaths = [i for i, e in enumerate(events) if 'Died' in e.get('msg', '')]
+            start_idx = deaths[-1] + 1 if deaths else 0
+            
+            for i in range(start_idx, len(events)):
+                if events[i].get('msg') in ('Level started', 'Restarting level'):
+                    start_idx = i + 1
+                    
+            success_events = events[start_idx:]
+            
+            waypoints = []
+            for i, e in enumerate(success_events):
+                if 'px' not in e or 'py' not in e: continue
+                code = e.get('code', '')
+                msg = e.get('msg', '')
+                
+                if msg == 'Injecting key' and code in ['ArrowUp', 'ArrowDown']:
+                    pos = {'x': e['px'], 'y': e['py'], 'action': 'CLIMB'}
+                    if not waypoints or abs(waypoints[-1]['x'] - pos['x']) > 2 or abs(waypoints[-1]['y'] - pos['y']) > 2:
+                        waypoints.append(pos)
+                        
+            # Ensure the final position (treasure) is recorded
+            for e in reversed(success_events):
+                 if 'px' in e and 'py' in e:
+                     pos = {'x': e['px'], 'y': e['py'], 'action': 'GOAL'}
+                     if not waypoints or abs(waypoints[-1]['x'] - pos['x']) > 2 or abs(waypoints[-1]['y'] - pos['y']) > 2:
+                         waypoints.append(pos)
+                     break
+                     
+            if l not in level_paths or len(waypoints) < len(level_paths[l]):
+                level_paths[l] = waypoints
+                
+    return level_paths
+
 def ladder_near(state, hint_col, threshold=10):
     """Helper: is there a ladder within threshold cols of hint_col?"""
     cols = state.ladder_cols()
@@ -418,6 +498,83 @@ def make_climb_action(target_x):
             # At target but no ladder found, wait
             return "STOP"
     return climb_action
+
+def make_climb_down_action(target_x):
+    """Factory for climbing down."""
+    def action(state):
+        if state.player_x < target_x: return "RIGHT"
+        if state.player_x > target_x: return "LEFT"
+        return "DOWN"
+    return action
+
+def make_move_action(target_x):
+    def action(state):
+        if state.player_x < target_x: return "RIGHT"
+        if state.player_x > target_x: return "LEFT"
+        return "STOP"
+    return action
+
+def generate_steps_from_path(waypoints):
+    """Generate Navigator steps dynamically from a list of waypoints."""
+    steps = []
+    
+    for i, wp in enumerate(waypoints):
+        target_x = wp['x']
+        target_y = wp['y']
+        action = wp['action']
+        
+        if action == 'CLIMB':
+            # This waypoint represents starting to climb UP or DOWN.
+            # Determine direction by looking at next waypoint if it exists.
+            is_up = True
+            if i + 1 < len(waypoints):
+                if waypoints[i+1]['y'] > target_y:
+                    is_up = False
+            
+            # Step 1: Move to X coordinate
+            steps.append(Navigator.Step(
+                name=f"Move to X={target_x} for climb {'UP' if is_up else 'DOWN'}",
+                action_fn=make_move_action(target_x),
+                completion_fn=lambda s, tx=target_x: s.player_x == tx
+            ))
+            
+            # Step 2: Climb until Y condition met
+            # The next waypoint tells us what Y we are climbing to
+            if i + 1 < len(waypoints):
+                next_y = waypoints[i+1]['y']
+                if is_up:
+                    steps.append(Navigator.Step(
+                        name=f"Climb up to Y={next_y}",
+                        action_fn=make_climb_action(target_x),
+                        completion_fn=lambda s, ny=next_y: s.player_y <= ny
+                    ))
+                else:
+                    steps.append(Navigator.Step(
+                        name=f"Climb down to Y={next_y}",
+                        action_fn=make_climb_down_action(target_x),
+                        completion_fn=lambda s, ny=next_y: s.player_y >= ny
+                    ))
+                    
+        elif action == 'GOAL':
+            steps.append(Navigator.Step(
+                name=f"Move to Goal X={target_x}",
+                action_fn=make_move_action(target_x),
+                completion_fn=lambda s, tx=target_x: s.player_x == tx
+            ))
+            steps.append(Navigator.Step(
+                name=f"Climb to Goal Y={target_y}",
+                action_fn=make_climb_action(target_x),
+                completion_fn=lambda s, ny=target_y: s.player_y <= ny
+            ))
+            
+    # Add a final step just in case
+    steps.append(Navigator.Step(
+        name="Finished Path",
+        action_fn=lambda s: "STOP",
+        completion_fn=lambda s: False
+    ))
+    
+    return steps
 
 
 def make_level1_steps():
@@ -541,7 +698,16 @@ async def run_bot():
     prev_state = None
 
     detector = HazardDetector()
-    navigator = Navigator(make_level1_steps())
+    
+    # Extract learned paths
+    paths = extract_paths()
+    if paths:
+        logging.info(f"Learned paths for levels: {list(paths.keys())}")
+    else:
+        logging.warning("No learned paths available.")
+        
+    navigator = None
+    current_nav_level = -1
 
     try:
         async with websockets.connect(url) as ws:
@@ -560,11 +726,16 @@ async def run_bot():
 
                 # Parse current frame
                 state = GameState(frame)
-
-                # Level check
-                if state.level > 1:
-                    logging.info("Level 1 complete! Exiting.")
-                    sys.exit(0)
+                
+                # Check if we need to initialize or switch the navigator for the current level
+                if state.level != current_nav_level:
+                    if state.level in paths:
+                        logging.info(f"Loading learned path for level {state.level}")
+                        navigator = Navigator(generate_steps_from_path(paths[state.level]))
+                    else:
+                        logging.warning(f"No learned path for level {state.level}. Using hardcoded fallback.")
+                        navigator = Navigator(make_level1_steps())
+                    current_nav_level = state.level
 
                 # Skip if no player on screen
                 if not state.player_found:
