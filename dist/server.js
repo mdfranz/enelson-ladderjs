@@ -365,7 +365,7 @@ const Screen = {
     }
 };
 
-var GameVersion = "0.4.0";
+var GameVersion = "0.5.0";
 
 /**
  * `MainMenu` is a class that represents a screen the user can view. Instances of
