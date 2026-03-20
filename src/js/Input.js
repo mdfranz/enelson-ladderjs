@@ -18,6 +18,7 @@
  */
 
 import { Audio } from './Audio';
+import logger from './logger.js';
 
 // A list of in-game actions that can be performed by the player
 const Action = {
@@ -66,24 +67,26 @@ export const Input = {
         // if you didn't support cheat codes you could delete it altogether.)
         this.history = [];
 
-        window.addEventListener('keydown', event => {
-            let entry = {
-                at: new Date().getTime(),
-                key: event.key,
-                code: event.code,
-                action: Input.KeyMapping[event.code] || Input.Action.STOP
-            };
-            Input.buffer.push(entry);
-            Input.history.push(entry);
-            console.log(entry);
+        if (typeof window !== 'undefined') {
+            window.addEventListener('keydown', event => {
+                let entry = {
+                    at: new Date().getTime(),
+                    key: event.key,
+                    code: event.code,
+                    action: Input.KeyMapping[event.code] || Input.Action.STOP
+                };
+                Input.buffer.push(entry);
+                Input.history.push(entry);
+                logger.info({ input: entry }, 'Key down');
 
-            // Hack to ensure we initialize audio after user interacts with the game. Sometimes
-            // the browser will just ignore attempts to play audio if the user has not interacted
-            // with the page yet, but some browsers/versions will actually error out (either
-            // stopping the game itself, or preventing later audio playing). So it's better to
-            // plan for it explicitly.
-            Audio.readyToPlay = true;
-        });
+                // Hack to ensure we initialize audio after user interacts with the game. Sometimes
+                // the browser will just ignore attempts to play audio if the user has not interacted
+                // with the page yet, but some browsers/versions will actually error out (either
+                // stopping the game itself, or preventing later audio playing). So it's better to
+                // plan for it explicitly.
+                Audio.readyToPlay = true;
+            });
+        }
     },
 
     update() {

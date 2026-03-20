@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ladder - Server Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #1a1a1a;
+            color: #33ff00;
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #33ff00;
+            font-size: 18px;
+        }
+
+        #screen {
+            background-color: #181818;
+            padding: 20px;
+            border: 1px solid #33ff00;
+            line-height: 1;
+            word-break: break-all;
+            white-space: pre;
+            font-size: 12px;
+            letter-spacing: 2px;
+            overflow: auto;
+            min-height: 400px;
+            max-height: 600px;
+        }
+
+        .info {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #252525;
+            border: 1px solid #33ff00;
+            font-size: 12px;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 5px;
+            text-align: center;
+        }
+
+        .status.connected {
+            color: #00ff00;
+        }
+
+        .status.disconnected {
+            color: #ff3300;
+        }
+
+        .instructions {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #252525;
+            border: 1px solid #33ff00;
+            font-size: 11px;
+            line-height: 1.5;
+        }
+
+        .instructions h3 {
+            color: #33ff00;
+            margin-bottom: 5px;
+        }
+
+        .instructions p {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Ladder - Server Viewer</h1>
+        <pre id="screen"></pre>
+        <div class="info">
+            <div id="session-info">No session</div>
+            <div class="status disconnected" id="status">Connecting...</div>
+        </div>
+        <div class="instructions">
+            <p>
+                <strong>WASD / ↑↓←→</strong> Move | 
+                <strong>SPACE</strong> Jump | 
+                <strong>P</strong> Play/Pause | 
+                <strong>L</strong> Level | 
+                <strong>ESC</strong> Pause | 
+                <strong>ENTER</strong> Resume
+            </p>
+        </div>
+    </div>
+
+    <script>
+        const screenEl = document.getElementById('screen');
+        const statusEl = document.getElementById('status');
+        const sessionEl = document.getElementById('session-info');
+
+        const ws = new WebSocket(`ws://${location.host}`);
+
+        ws.onopen = () => {
+            statusEl.textContent = 'Connected';
+            statusEl.className = 'status connected';
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'frame') {
+                    // Render screen
+                    if (data.screen) {
+                        screenEl.textContent = data.screen.join('\n');
+                    }
+
+                    // Update session info
+                    if (data.session) {
+                        sessionEl.textContent = `Score: ${data.session.score} | Lives: ${data.session.lives} | Level: ${data.session.level} | ${data.session.paused ? 'PAUSED' : 'PLAYING'}`;
+                    } else {
+                        sessionEl.textContent = 'Menu (press P to start)';
+                    }
+                }
+            } catch (e) {
+                console.error('Message parse error:', e);
+            }
+        };
+
+        ws.onerror = (event) => {
+            console.error('WebSocket error:', event);
+            statusEl.textContent = 'Error';
+            statusEl.className = 'status disconnected';
+        };
+
+        ws.onclose = () => {
+            statusEl.textContent = 'Disconnected';
+            statusEl.className = 'status disconnected';
+        };
+
+        // Handle keyboard input
+        document.addEventListener('keydown', (event) => {
+            // Prevent default browser behavior (scrolling) for game keys
+            if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) {
+                event.preventDefault();
+            }
+
+            ws.send(JSON.stringify({
+                type: 'key',
+                key: event.key,
+                code: event.code
+            }));
+        });
+    </script>
+</body>
+</html>

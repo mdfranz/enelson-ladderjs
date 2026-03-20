@@ -1,5 +1,17 @@
 # ladderjs
 
+I forked this from <a href="https://github.com/elliot-nelson/">Elliot Nelson</a> but so much of this applies I left it. I also had a Kaypro II.
+
+These are the changes I've made
+
+* Build System: Replaced gulpfile.js with a custom build.js and a Makefile, and transitioned the project toward ESM.
+* Client-Server Architecture: Added a Node.js server (src/js/server.js, HttpServer.js) and server-side game logic (ServerGame.js) with associated environment shims.
+* Automation: Introduced a Python-based bot (bot.py) and updated asset-processing tools.
+* Documentation: Added ARCHITECTURE.md and significantly expanded the README.md.
+* Refactoring: Updated core game components (GameSession, Input, PlayingField) to support the new client-server model and improved logging.
+
+## Background
+
 > The 1982 CP/M game _Ladder_, ported to JavaScript and playable in your browser.
 
 ![ladder main menu](images/ladder-main-menu.png)
@@ -24,7 +36,106 @@ One difference between the previous ports and `ladderjs` is that I wanted ladder
 
 ## Play it now
 
-You can play ladderjs in your browser at [ladderjs.7tonshark.com](https://ladderjs.7tonshark.com).
+
+Alternatively, run the headless server locally and play via WebSocket or REST API:
+
+```bash
+npm install
+npm run build:server
+npm start
+# Server runs at http://localhost:3000
+```
+
+## REST & WebSocket Interface
+
+The game can run headlessly in Node.js and be controlled remotely via HTTP and WebSocket:
+
+### Running the Server
+
+```bash
+npm run build:server    # Build the server bundle
+npm start               # Start on port 3000
+```
+
+Example output:
+```text
+mdfranz@acer-cr516g:~/github/enelson-ladderjs$ npm start
+
+> ladderjs@0.4.0 start
+> node dist/server.js
+
+Server running at http://localhost:3000
+  - WebSocket:     ws://localhost:3000
+  - Browser:       http://localhost:3000
+  - Original game: http://localhost:3000/game
+  - REST API:      http://localhost:3000/api/state
+```
+
+The server provides several ways to interact with the game:
+
+- **Browser Viewer (`/`)**: A web-based "monitor" that connects to the server via WebSocket. It displays the current state of the game running on the server and allows you to play using your keyboard.
+- **Original Game (`/game`)**: The standalone, client-side version of the game. This runs entirely in your browser and does not synchronize with the server's state.
+- **WebSocket (`ws://...`)**: A real-time stream of game data. The server broadcasts the full 80x24 screen buffer and session state (score, lives, etc.) to all connected clients at 60 frames per second. You can also send input commands back to the server.
+- **REST API (`/api/state`)**: A standard HTTP interface for polling the current game state or sending one-off input commands. This is ideal for building bots or external dashboards.
+
+### Browser Viewer
+
+Open `http://localhost:3000` in your browser to watch and play the game with keyboard controls.
+
+### REST API
+
+**Get game state:**
+```bash
+curl http://localhost:3000/api/state
+```
+
+Response:
+```json
+{
+  "frame": 1234,
+  "screen": ["...", "..."],  // 24 strings of 80 characters each
+  "session": {
+    "score": 1000,
+    "lives": 3,
+    "level": 0,
+    "paused": false
+  }
+}
+```
+
+**Send input:**
+```bash
+curl -X POST http://localhost:3000/api/input \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"RIGHT"}'
+```
+
+Valid actions: `UP`, `DOWN`, `LEFT`, `RIGHT`, `JUMP`, `STOP`, `PAUSE`, `RESUME`.
+
+### WebSocket
+
+Connect to `ws://localhost:3000` to receive frame updates at ~60/s and send input:
+
+**Receive** (from server, every frame):
+```json
+{ "type": "frame", "frame": 1234, "screen": [...], "session": {...} }
+```
+
+**Send** (to server):
+```json
+{ "type": "input", "action": "JUMP" }
+```
+
+### Original Game
+
+The standalone browser game is available at `http://localhost:3000/game` or by opening `dist/index.html` directly.
+
+## Development
+
+Build commands:
+- `npm run build` — Full build (assets, browser bundle, server bundle)
+- `npm run build:server` — Headless server bundle only
+- `npm run watch` — Watch mode for browser bundle
 
 ## Core Mechanics
 
@@ -48,7 +159,7 @@ The project follows a modular, decoupled design aimed at being easy to read and 
 - **Level Logic**: `PlayingField.js` handles all real-time interactions, collisions, and entity updates for a specific level.
 - **ASCII Rendering**: `Screen.js` maintains a virtual 80x24 character buffer, which `Viewport.js` then renders to the HTML5 Canvas with retro-style scaling and scanline effects.
 - **Entity System**: Entities like `Player`, `Rock`, and `Ghost` are encapsulated in their own classes, making it simple to add new behaviors.
-- **Tooling**: A Gulp-based pipeline handles asset generation, JavaScript bundling via Rollup, and minification.
+- **Tooling**: A custom Node.js build script (`build.js`) handles asset generation, JavaScript bundling via Rollup, and minification.
 
 ## Changelog
 

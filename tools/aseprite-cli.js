@@ -1,5 +1,5 @@
-const childProcess = require('child_process');
-const os = require('os');
+import childProcess from 'node:child_process';
+import os from 'node:os';
 
 /**
  * A simple wrapper for the Aseprite executable -- finds the Aseprite binary on your
@@ -38,6 +38,8 @@ const AsepriteCli = {
       options.push(`C:\\Program Files (x86)\\Aseprite\\Aseprite.exe`);
       options.push(`C:\\Program Files\\Aseprite\\Aseprite.exe`);
       options.push(`Aseprite`);
+    } else if (platform === 'linux') {
+      options.push(`aseprite`);
     }
 
     for (let option of options) {
@@ -58,4 +60,4 @@ const AsepriteCli = {
   }
 }
 
-module.exports = AsepriteCli;
+export default AsepriteCli;
