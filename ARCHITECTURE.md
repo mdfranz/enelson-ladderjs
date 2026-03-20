@@ -1,105 +1,230 @@
 # LadderJS Architecture
 
-This document describes the architecture of **LadderJS**, a modern JavaScript recreation of the 1982 CP/M game *Ladder*.
+This document describes how `ladderjs` is structured today, including browser play, headless server mode, and the Python tooling used for automation/replay.
 
-## Overview
+## High-Level Design
 
-LadderJS is designed with a **Headless-First** approach. The core game logic is entirely decoupled from the rendering environment, allowing it to run identically in a web browser (with Canvas/WebAudio) or in a Node.js server (headless).
+LadderJS has one core gameplay codebase (`src/js/*`) that is executed in two environments:
 
-## Core Components
+- Browser mode: standalone game rendered to `<canvas>`.
+- Headless server mode: same game rules, no canvas/audio rendering, state exposed through WebSocket + REST.
 
-### 1. Game Logic Engine
-The engine is built around a fixed-grid coordinate system (80x25 characters), mimicking the original terminal-based display of the Kaypro II.
+The key architectural choice is to keep gameplay logic independent from concrete rendering and audio, then swap environment-specific implementations during server bundling.
 
--   **`Game` (Singleton)**: The top-level controller. It manages the main loop, handles state transitions between the Main Menu, Instructions, and active Game Sessions.
--   **`GameSession`**: Manages state that persists across multiple levels, such as lives, total score, and the current level number.
--   **`PlayingField`**: Manages the state of a single active level. This includes the layout (floors, ladders), entity positions (Player, Rocks, Ghosts), and level-specific timers.
--   **`Entity`**: The base class for all moving objects. It handles "Pac-Man style" movement where a direction input is queued until it can be executed.
--   **`Level`**: A data-driven utility that loads level layouts from `levels.json`. It parses the ASCII-based maps into a 2D array and identifies key entity spawn points (Player, Dispensers).
+## Repository Layout
 
-### 2. Level Data Format
-The game's levels are defined in `src/levels/levels.json` as an array of objects. This allows for easy level creation and modification without changing game logic.
+- `src/js/`: Core game and server/runtime modules.
+- `src/js/shims/`: Headless replacements for browser-only modules.
+- `src/levels/levels.json`: Data-driven level definitions.
+- `src/assets/`: Aseprite sources and generated sprite metadata.
+- `build.js`: Build pipeline for browser bundle, server bundle, assets, CSS, and HTML.
+- `client.html`: Thin WebSocket viewer/controller for the headless server.
+- `bot.py`, `viewer.py`, `replay.py`: Python automation and analysis tools.
+- `dist/`: Build outputs (`app.js`, `server.js`, `index.html`, `app.css`, `sprites.png`).
 
--   **Level Object Structure**:
-    -   `name`: The display name of the level.
-    -   `layout`: An array of 20 strings, each 80 characters long, representing the 80x25 grid (some rows are reserved for UI).
-    -   `time` (optional): Starting bonus time for the level.
-    -   `maxRocks` (optional): Override for the maximum number of concurrent rocks.
+## Runtime Modes
 
--   **Map Symbols**:
-    | Symbol | Meaning | Interaction |
-    | :--- | :--- | :--- |
-    | `p` | Player Start | Initial position of "The Lad". Replaced with space after loading. |
-    | `=` | Floor | Solid ground for players and rocks. |
-    | `-` | Disappearing Floor | Crumbles and disappears after the player walks over it. |
-    | `H` | Ladder | Allows vertical movement. |
-    | `|` | Wall | Blocks horizontal movement. |
-    | `$` | Treasure | The level goal. Collecting this triggers the win state. |
-    | `&` | Statue | Bonus point pickup. |
-    | `K` | Key | Opens all doors (`#`) on the level. |
-    | `#` | Door | Solid wall until a Key is collected. |
-    | `V` | Rock Dispenser | Periodically spawns Rocks. |
-    | `G` | Ghost Dispenser | Periodically spawns Ghosts. |
-    | `^` | Fire | Deadly to the player. |
-    | `.` | Trampoline | Randomly bounces the player in a new direction. |
-    | `*` | Eater / Boundary | Often used at level edges or as aesthetic markers. |
+### Browser Runtime
 
-### 3. The "Screen" Abstraction
-Instead of drawing directly to a Canvas, the game logic writes to a `Screen` object—an 80x25 grid of characters.
--   In the **Browser**, the `Viewport` reads this grid and renders it to an HTML5 Canvas using a custom spritesheet font.
--   On the **Server**, the grid is serialized and broadcast to remote clients via WebSockets.
+Entry point: `src/js/index.js` -> `Game.init()`.
 
-## Cross-Platform Architecture
+Initialization order:
 
-The project uses a "Shim" pattern to support both Browser and Node.js environments from a single codebase.
+1. `Sprite.loadSpritesheet()`
+2. `Viewport.init()`
+3. `Screen.init()`
+4. `Sprite.init()`
+5. `Text.init()`
+6. `Input.init()`
+7. `Audio.init()`
+8. `Game.start()`
 
-| Feature | Browser Implementation | Server (Node.js) Shim |
-| :--- | :--- | :--- |
-| **Rendering** | HTML5 Canvas (`Viewport.js`) | No-op / Serializer (`ServerViewport.js`) |
-| **Audio** | WebAudio / ZzFX (`Audio.js`) | No-op (`ServerAudio.js`) |
-| **Input** | Keyboard/Touch Events (`Input.js`) | WebSocket/REST Injection |
-| **Sprites** | Image loading (`Sprite.js`) | Metadata only (`ServerSprite.js`) |
+`Game.onFrame()` is driven by `requestAnimationFrame`, then internally rate-limited to ~60Hz.
 
-The `build.js` script uses Rollup aliases to swap these modules during the server build process.
+### Headless Server Runtime
 
-## Data Flow Diagram
+Entry point: `src/js/server.js` -> `startServer()` in `HttpServer`.
 
-```mermaid
-graph TD
-    subgraph "Input Layer"
-        KB[Keyboard/Touch] --> Input
-        WS_IN[WebSocket/REST Input] --> Input
-    end
+`ServerGame` monkey-patches the `Game` singleton to avoid browser-only behavior and runs its own 60Hz loop via `setInterval`. Each tick:
 
-    subgraph "Core Engine"
-        Input --> Game
-        Game --> Session[GameSession]
-        Session --> Field[PlayingField]
-        Field --> Entities[Player / Rocks / Ghosts]
-        Entities --> Screen[Screen Buffer 80x25]
-    end
+1. Updates input/audio/menu/session.
+2. Draws into the virtual `Screen` buffer (no canvas draw).
+3. Emits a snapshot to subscribed callbacks.
 
-    subgraph "Output Layer (Browser)"
-        Screen --> Viewport
-        Viewport --> Canvas[HTML5 Canvas]
-        Game --> Audio[ZzFX Audio]
-    end
+`HttpServer` broadcasts each snapshot to all connected WebSocket clients and exposes REST endpoints for polling and input injection.
 
-    subgraph "Output Layer (Server)"
-        Screen --> WS_OUT[WebSocket Stream]
-        Screen --> REST[REST API /api/state]
-    end
-```
+## Core Game Model
 
-## Build & Asset Pipeline
+### State Ownership
 
--   **Node.js & Rollup**: Used for bundling. Rollup handles the module aliasing for the server build.
--   **Aseprite CLI**: Automated tool that takes `.aseprite` source files, packs them into a single `sprites.png`, and generates a `SpriteSheet-gen.js` with UV coordinates.
--   **ZzFX**: A tiny sound effect generator used to produce authentic 8-bit sounds without large audio files.
+- `Game` (singleton): top-level mode switching (`MainMenu`, `InstructionsMenu`, `GameSession`), frame counter, play speed.
+- `GameSession`: cross-level state (`score`, `lives`, `levelNumber`, pause state, difficulty scaling).
+- `PlayingField`: one active level instance (layout copy, player, hazards, timers, win/death handling).
+- `Level`: immutable level data loader/parser from JSON.
 
-## Server-Side Hosting
+### Fixed Character-Space Rendering
 
-The `ServerGame` class monkey-patches the `Game` singleton to run at a fixed 60 FPS in Node.js. It provides:
--   **WebSocket Server**: Real-time streaming of the screen state.
--   **REST API**: For checking game status or programmatically injecting moves (ideal for AI/Bots).
--   **Remote Play**: A `client.html` is provided that acts as a thin terminal, connecting to a running server instance.
+The game writes text-like glyphs into `Screen.screen` (2D char array) rather than drawing entities directly to canvas.
+
+- Logical screen dimensions: `SCREEN_WIDTH = 80`, `SCREEN_HEIGHT = 24`.
+- Level play area dimensions: `LEVEL_ROWS = 20`, `LEVEL_COLS = 79`.
+
+In browser mode, `Screen.draw()` converts the buffer to text and `Text.drawText()` paints glyph sprites to canvas. In server mode, the same buffer is serialized to string rows and streamed.
+
+## Game Loop and Timing
+
+Two timing layers are used:
+
+- Engine frame: ~60Hz loop (`Game.onFrame()` or `ServerGame._tick()`).
+- Movement gating: `GameSession.update()` applies an additional delay (`PLAY_SPEEDS`) and hidden scaling (`hiddenFactor`) to determine `moveFrame`.
+
+Result: animations and UI can still update every engine frame while movement speed changes by difficulty.
+
+## Entity and Movement Architecture
+
+### Entity State Machine
+
+`Entity.js` defines shared movement states (`LEFT`, `RIGHT`, `FALLING`, jump states, death states, etc.) and `applyEntityMovement()`.
+
+Movement uses queued intent (`nextState`) to support “Pac-Man style” buffered input.
+
+### Player
+
+`Player.update()` consumes high-level actions from `Input`, maps them to state transitions, and calls `applyEntityMovement()` only on `moveFrame` ticks.
+
+### Rocks
+
+`Rock` entities spawn from `V` dispensers, animate spawn/death, switch directions at boundaries/obstacles, can descend ladders probabilistically, and die on eater (`*`) tiles.
+
+### Ghosts
+
+`Ghost` entities spawn from `G` dispensers and move every `moveSpeed` frames using a simple chase heuristic prioritizing the dominant axis, avoiding solid tiles.
+
+### Collision and Scoring
+
+`PlayingField` owns interaction logic:
+
+- Player death checks (fire, timeout, rock/ghost contact).
+- Pickup handling (statues, keys, treasure).
+- Door unlock behavior (`K` clears all `#`).
+- End-of-level bonus conversion (remaining time -> repeated treasure scoring).
+
+`GameSession.updateScore()` centralizes score/life updates and audio trigger hooks.
+
+## Level Data Contract
+
+Source: `src/levels/levels.json`.
+
+Each level object includes:
+
+- `name`: level display name.
+- `layout`: ASCII rows.
+- optional `time`, `maxRocks` style extensions (if present in data).
+
+`Level.load(levelNumber)`:
+
+- Wraps level number by available level count.
+- Crops/pads layout to `LEVEL_ROWS x LEVEL_COLS`.
+- Extracts `player`, `dispensers` (`V`), `ghostDispensers` (`G`).
+- Replaces player spawn marker `p` in layout with empty space.
+
+## Input Architecture
+
+`Input` stores:
+
+- `buffer`: unconsumed key events for gameplay/menu decisions.
+- `history`: short rolling history (~3s) used for cheat code detection.
+
+Events are normalized into `Input.Action` values through `KeyMapping`, but code can still inspect raw keys (`lastKey`) for menu commands.
+
+Server mode uses the same `Input.buffer`; actions/keys are injected programmatically by `ServerGame.injectAction()` and `ServerGame.injectKey()`.
+
+## Networking and APIs
+
+Implemented in `HttpServer`.
+
+### WebSocket
+
+- Endpoint: same host/port root (`ws://<host>:<port>`).
+- Outbound messages: `{ type: 'frame', frame, screen, session }` every server tick.
+- Inbound commands:
+  - `{ type: 'input', action: 'RIGHT' }`
+  - `{ type: 'key', key: 'ArrowRight', code: 'ArrowRight' }`
+
+### REST
+
+- `GET /api/state`: returns latest snapshot.
+- `POST /api/input`: injects action (`UP`, `DOWN`, `LEFT`, `RIGHT`, `JUMP`, `STOP`, `PAUSE`, `RESUME`).
+
+### Snapshot Shape
+
+`ServerGame.snapshot()` returns:
+
+- `frame`: frame number.
+- `screen`: array of 24 strings.
+- `session`: nullable metadata object (`score`, `lives`, `level`, `paused`).
+
+## Build and Asset Pipeline
+
+`build.js` orchestrates:
+
+1. Version generation: writes `src/js/GameVersion-gen.json` from `package.json`.
+2. Asset export: optional Aseprite CLI run -> packed PNG + JSON metadata.
+3. Sprite metadata generation: `tools/image-data-parser.js` -> `src/js/SpriteSheet-gen.js`.
+4. Browser JS bundle: Rollup (`src/js/index.js` -> `dist/app.js`, IIFE).
+5. CSS minification: `src/app.css` -> `dist/app.css`.
+6. HTML minification: `src/index.html` -> `dist/index.html`.
+7. Server JS bundle: Rollup (`src/js/server.js` -> `dist/server.js`, ESM) with alias-based shim swapping.
+
+Server build aliases browser modules to headless shims:
+
+- `Viewport` -> `shims/ServerViewport.js`
+- `Text` -> `shims/ServerText.js`
+- `Audio` -> `shims/ServerAudio.js`
+- `Sprite` -> `shims/ServerSprite.js`
+- `logger.js` -> `shims/ServerLogger.js`
+
+## Logging and Observability
+
+- Browser runtime: `src/js/logger.js` uses console passthrough.
+- Server runtime: `ServerLogger` uses `pino` (stdout or `LOG_FILE` destination).
+- Game events (score, level transitions, deaths, injected inputs) are logged from gameplay/server modules.
+
+## Python Tooling Integration
+
+### `bot.py`
+
+WebSocket bot client with:
+
+- Frame parsing into structured state.
+- Hazard detection and evasive overrides.
+- Step-based navigator behavior.
+- JSON log output for training/replay workflows.
+
+### `viewer.py`
+
+Terminal WebSocket viewer using curses; renders latest server frame and session info.
+
+### `replay.py`
+
+Offline curses replay of logged session data (`training_data.json`) against level layouts.
+
+## Known Architectural Gaps and Risks
+
+These are current code-level issues worth tracking:
+
+1. `ServerGame.snapshot()` exposes `session.level` from `Game.session.level`, but gameplay state uses `levelNumber`; this can report incorrect level info.
+2. `HttpServer` serves static files from project root (`express.static(process.cwd())`), which is broader than necessary for production hosting.
+3. Level dimensions are intentionally non-uniform (`80x24` screen vs `79x20` playfield); this is functional but easy to misinterpret when extending level/render logic.
+4. No automated tests are present (`npm test` is a placeholder), so architecture regressions rely on manual verification.
+
+## Extension Points
+
+Common safe extension areas:
+
+- Add entities: create class + update/draw integration in `PlayingField`.
+- Add tiles/mechanics: extend level symbol checks and utility predicates in `PlayingField`/`Level`.
+- Add external controllers: reuse WebSocket/REST input injection.
+- Add observability: hook into `ServerGame.onFrame()` for telemetry recorders.
+
+For compatibility, preserve the virtual `Screen` contract and keep gameplay logic independent from rendering APIs.
